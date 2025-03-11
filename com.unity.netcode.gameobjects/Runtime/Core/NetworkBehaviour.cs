@@ -549,7 +549,7 @@ namespace Unity.Netcode
 
                 try
                 {
-                    m_NetworkObject = GetComponentInParent<NetworkObject>();
+                    m_NetworkObject = GetComponentInParent<NetworkObject>(true);
                 }
                 catch (Exception)
                 {
