@@ -681,6 +681,10 @@ namespace Unity.Netcode
         {
             var begin = scenePath.LastIndexOf("/", StringComparison.Ordinal) + 1;
             var end = scenePath.LastIndexOf(".", StringComparison.Ordinal);
+            if (end - begin <= 0)
+            {
+                return scenePath;
+            }
             return scenePath.Substring(begin, end - begin);
         }
 
@@ -728,17 +732,23 @@ namespace Unity.Netcode
 
             foreach (var scenePath in scenePaths)
             {
-                var hash = XXHash.Hash32(scenePath);
+                RegisterExternalScene(scenePath);
+            }
+        }
 
-                if (!HashToExternalScenePath.ContainsKey(hash))
-                {
-                    HashToExternalScenePath.Add(hash, scenePath);
-                    ExternalSceneNameToHash.Add(GetSceneNameFromPath(scenePath), hash);
-                }
-                else
-                {
-                    Debug.LogError($"{nameof(NetworkSceneManager)} is skipping duplicate external scene path entry {scenePath}. Make sure your external scenes registered list does not contain duplicates!");
-                }
+        public void RegisterExternalScene(string scenePath)
+        {
+            var hash = XXHash.Hash32(scenePath);
+
+            if (!HashToExternalScenePath.ContainsKey(hash))
+            {
+                HashToExternalScenePath.Add(hash, scenePath);
+                var sceneName = scenePath.Contains("/") ? GetSceneNameFromPath(scenePath) : scenePath;
+                ExternalSceneNameToHash.Add(sceneName, hash);
+            }
+            else
+            {
+                Debug.LogError($"{nameof(NetworkSceneManager)} is skipping duplicate external scene path entry {scenePath}. Make sure your external scenes registered list does not contain duplicates!");
             }
         }
 
