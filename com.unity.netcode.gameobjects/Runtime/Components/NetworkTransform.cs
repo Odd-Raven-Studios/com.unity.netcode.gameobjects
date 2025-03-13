@@ -1250,6 +1250,8 @@ namespace Unity.Netcode.Components
         /// </summary>
         protected NetworkManager m_CachedNetworkManager;
 
+        protected virtual Transform SyncedTransform => transform;
+
         /// <summary>
         /// Helper method that returns the space relative position of the transform.
         /// </summary>
@@ -1275,7 +1277,7 @@ namespace Unity.Netcode.Components
         {
             if (!getCurrentState || CanCommitToTransform)
             {
-                return InLocalSpace ? transform.localPosition : transform.position;
+                return InLocalSpace ? SyncedTransform.localPosition : SyncedTransform.position;
             }
             else
             {
@@ -1316,7 +1318,7 @@ namespace Unity.Netcode.Components
         {
             if (!getCurrentState || CanCommitToTransform)
             {
-                return InLocalSpace ? transform.localRotation : transform.rotation;
+                return InLocalSpace ? SyncedTransform.localRotation : SyncedTransform.rotation;
             }
             else
             {
@@ -1347,7 +1349,7 @@ namespace Unity.Netcode.Components
         {
             if (!getCurrentState || CanCommitToTransform)
             {
-                return transform.localScale;
+                return SyncedTransform.localScale;
             }
             else
             {
@@ -1808,7 +1810,7 @@ namespace Unity.Netcode.Components
             if (InLocalSpace != networkState.InLocalSpace)
 #endif
             {
-                networkState.InLocalSpace = SwitchTransformSpaceWhenParented ? transform.parent != null : InLocalSpace;
+                networkState.InLocalSpace = SwitchTransformSpaceWhenParented ? SyncedTransform.parent != null : InLocalSpace;
                 isDirty = true;
                 networkState.IsTeleportingNextFrame = !SwitchTransformSpaceWhenParented;
                 forceState = SwitchTransformSpaceWhenParented;
@@ -2084,7 +2086,7 @@ namespace Unity.Netcode.Components
                 // LossyScale if the NetworkObject has a parent since NetworkObject spawn order is not guaranteed
                 if (networkState.IsParented)
                 {
-                    networkState.LossyScale = transform.lossyScale;
+                    networkState.LossyScale = SyncedTransform.lossyScale;
                 }
             }
 
@@ -2133,13 +2135,13 @@ namespace Unity.Netcode.Components
             {
                 if (!UseHalfFloatPrecision)
                 {
-                    networkState.ScaleX = transform.localScale.x;
-                    networkState.ScaleY = transform.localScale.y;
-                    networkState.ScaleZ = transform.localScale.z;
+                    networkState.ScaleX = SyncedTransform.localScale.x;
+                    networkState.ScaleY = SyncedTransform.localScale.y;
+                    networkState.ScaleZ = SyncedTransform.localScale.z;
                 }
                 else
                 {
-                    networkState.Scale = transform.localScale;
+                    networkState.Scale = SyncedTransform.localScale;
                 }
                 networkState.HasScaleX = true;
                 networkState.HasScaleY = true;
@@ -2393,7 +2395,7 @@ namespace Unity.Netcode.Components
                     m_NetworkRigidbodyInternal.MovePosition(m_InternalCurrentPosition);
                     if (LogMotion)
                     {
-                        Debug.Log($"[Client-{m_CachedNetworkManager.LocalClientId}][Interpolate: {networkState.UseInterpolation}][TransPos: {transform.position}][RBPos: {m_NetworkRigidbodyInternal.GetPosition()}][CurrentPos: {m_InternalCurrentPosition}");
+                        Debug.Log($"[Client-{m_CachedNetworkManager.LocalClientId}][Interpolate: {networkState.UseInterpolation}][TransPos: {SyncedTransform.position}][RBPos: {m_NetworkRigidbodyInternal.GetPosition()}][CurrentPos: {m_InternalCurrentPosition}");
                     }
 
                 }
@@ -2408,19 +2410,19 @@ namespace Unity.Netcode.Components
                         // state update which can cause the body to seemingly "teleport" when it is just applying a local
                         // space value relative to world space 0,0,0.
                         if (SwitchTransformSpaceWhenParented && m_IsFirstNetworkTransform && Interpolate && m_PreviousNetworkObjectParent != null
-                            && transform.parent == null)
+                            && SyncedTransform.parent == null)
                         {
                             m_InternalCurrentPosition = m_PreviousNetworkObjectParent.transform.TransformPoint(m_InternalCurrentPosition);
-                            transform.position = m_InternalCurrentPosition;
+                            SyncedTransform.position = m_InternalCurrentPosition;
                         }
                         else
                         {
-                            transform.localPosition = m_InternalCurrentPosition;
+                            SyncedTransform.localPosition = m_InternalCurrentPosition;
                         }
                     }
                     else
                     {
-                        transform.position = m_InternalCurrentPosition;
+                        SyncedTransform.position = m_InternalCurrentPosition;
                     }
                 }
             }
@@ -2449,19 +2451,19 @@ namespace Unity.Netcode.Components
                         // tick synchronized, there can be one or two ticks between a state update with the InLocalSpace
                         // state update which can cause the body to rotate world space relative and cause a slight rotation
                         // of the body in-between this transition period.
-                        if (SwitchTransformSpaceWhenParented && m_IsFirstNetworkTransform && Interpolate && m_PreviousNetworkObjectParent != null && transform.parent == null)
+                        if (SwitchTransformSpaceWhenParented && m_IsFirstNetworkTransform && Interpolate && m_PreviousNetworkObjectParent != null && SyncedTransform.parent == null)
                         {
                             m_InternalCurrentRotation = m_PreviousNetworkObjectParent.transform.rotation * m_InternalCurrentRotation;
-                            transform.rotation = m_InternalCurrentRotation;
+                            SyncedTransform.rotation = m_InternalCurrentRotation;
                         }
                         else
                         {
-                            transform.localRotation = m_InternalCurrentRotation;
+                            SyncedTransform.localRotation = m_InternalCurrentRotation;
                         }
                     }
                     else
                     {
-                        transform.rotation = m_InternalCurrentRotation;
+                        SyncedTransform.rotation = m_InternalCurrentRotation;
                     }
                 }
             }
@@ -2474,7 +2476,7 @@ namespace Unity.Netcode.Components
                 {
                     m_InternalCurrentScale = adjustedScale;
                 }
-                transform.localScale = m_InternalCurrentScale;
+                SyncedTransform.localScale = m_InternalCurrentScale;
             }
             OnTransformUpdated();
         }
@@ -2496,7 +2498,7 @@ namespace Unity.Netcode.Components
             var currentPosition = GetSpaceRelativePosition();
             var currentRotation = GetSpaceRelativeRotation();
             var currentEulerAngles = currentRotation.eulerAngles;
-            var currentScale = transform.localScale;
+            var currentScale = SyncedTransform.localScale;
 
             var isSynchronization = newState.IsSynchronizing;
 
@@ -2562,17 +2564,17 @@ namespace Unity.Netcode.Components
                 // Apply the position
                 if (newState.InLocalSpace)
                 {
-                    transform.localPosition = currentPosition;
+                    SyncedTransform.localPosition = currentPosition;
                 }
                 else
                 {
-                    transform.position = currentPosition;
+                    SyncedTransform.position = currentPosition;
                 }
 
 #if COM_UNITY_MODULES_PHYSICS || COM_UNITY_MODULES_PHYSICS2D
                 if (m_UseRigidbodyForMotion)
                 {
-                    m_NetworkRigidbodyInternal.SetPosition(transform.position);
+                    m_NetworkRigidbodyInternal.SetPosition(SyncedTransform.position);
                 }
 #endif
 
@@ -2613,7 +2615,7 @@ namespace Unity.Netcode.Components
                 m_TargetScale = currentScale;
 
                 // Apply the adjusted scale
-                transform.localScale = currentScale;
+                SyncedTransform.localScale = currentScale;
 
                 if (Interpolate)
                 {
@@ -2652,17 +2654,17 @@ namespace Unity.Netcode.Components
 
                 if (InLocalSpace)
                 {
-                    transform.localRotation = currentRotation;
+                    SyncedTransform.localRotation = currentRotation;
                 }
                 else
                 {
-                    transform.rotation = currentRotation;
+                    SyncedTransform.rotation = currentRotation;
                 }
 
 #if COM_UNITY_MODULES_PHYSICS || COM_UNITY_MODULES_PHYSICS2D
                 if (m_UseRigidbodyForMotion)
                 {
-                    m_NetworkRigidbodyInternal.SetRotation(transform.rotation);
+                    m_NetworkRigidbodyInternal.SetRotation(SyncedTransform.rotation);
                 }
 #endif
 
@@ -3226,7 +3228,7 @@ namespace Unity.Netcode.Components
             UpdatePositionInterpolator(position, serverTime, true);
             UpdatePositionSlerp();
 
-            m_ScaleInterpolator.ResetTo(transform.localScale, serverTime);
+            m_ScaleInterpolator.ResetTo(SyncedTransform.localScale, serverTime);
             m_RotationInterpolator.ResetTo(rotation, serverTime);
         }
         private NetworkObject m_CachedNetworkObject;
@@ -3256,7 +3258,7 @@ namespace Unity.Netcode.Components
             {
                 if (CanCommitToTransform)
                 {
-                    InLocalSpace = transform.parent != null;
+                    InLocalSpace = SyncedTransform.parent != null;
                 }
                 // Always apply this if SwitchTransformSpaceWhenParented is set.
                 TickSyncChildren = true;
@@ -3320,8 +3322,8 @@ namespace Unity.Netcode.Components
                 ResetInterpolatedStateToCurrentAuthoritativeState();
                 m_InternalCurrentPosition = currentPosition;
                 m_TargetPosition = currentPosition;
-                m_InternalCurrentScale = transform.localScale;
-                m_TargetScale = transform.localScale;
+                m_InternalCurrentScale = SyncedTransform.localScale;
+                m_TargetScale = SyncedTransform.localScale;
                 m_InternalCurrentRotation = currentRotation;
                 m_TargetRotation = currentRotation.eulerAngles;
             }
@@ -3557,7 +3559,7 @@ namespace Unity.Netcode.Components
 #endif
             Vector3 pos = posIn == null ? position : posIn.Value;
             Quaternion rot = rotIn == null ? rotation : rotIn.Value;
-            Vector3 scale = scaleIn == null ? transform.localScale : scaleIn.Value;
+            Vector3 scale = scaleIn == null ? SyncedTransform.localScale : scaleIn.Value;
 
             if (!CanCommitToTransform)
             {
@@ -3596,16 +3598,16 @@ namespace Unity.Netcode.Components
             {
                 if (InLocalSpace)
                 {
-                    transform.localPosition = pos;
-                    transform.localRotation = rot;
+                    SyncedTransform.localPosition = pos;
+                    SyncedTransform.localRotation = rot;
                 }
                 else
                 {
-                    transform.SetPositionAndRotation(pos, rot);
+                    SyncedTransform.SetPositionAndRotation(pos, rot);
                 }
             }
 
-            transform.localScale = scale;
+            SyncedTransform.localScale = scale;
             m_LocalAuthoritativeNetworkState.IsTeleportingNextFrame = shouldTeleport;
 
             var transformToCommit = transform;
