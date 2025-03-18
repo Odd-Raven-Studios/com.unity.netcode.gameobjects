@@ -59,6 +59,11 @@ namespace Unity.Netcode
                 }
                 else // Otherwise, send a proxied message to the owner of the object
                 {
+                    if (!behaviour.IsSpawned)
+                    {
+                        throw new NetworkConfigurationException($"Can not send an RPC on a NetworkObject that was not spawned. {behaviour.name}.IsSpawned = false.");
+                        return;
+                    }
                     if (m_ProxyRpcTarget == null)
                     {
                         m_ProxyRpcTarget = new ProxyRpcTarget(behaviour.OwnerClientId, m_NetworkManager);

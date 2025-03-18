@@ -2429,6 +2429,8 @@ namespace Unity.Netcode
         {
             NetworkManager.SpawnManager.UpdateOwnershipTable(this, OwnerClientId);
 
+            gameObject.SetActive(true);
+
             for (int i = 0; i < ChildNetworkBehaviours.Count; i++)
             {
                 if (ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
