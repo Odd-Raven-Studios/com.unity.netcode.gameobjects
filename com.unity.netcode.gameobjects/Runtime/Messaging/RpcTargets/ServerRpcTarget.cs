@@ -62,7 +62,6 @@ namespace Unity.Netcode
                     if (!behaviour.IsSpawned)
                     {
                         throw new NetworkConfigurationException($"Can not send an RPC on a NetworkObject that was not spawned. {behaviour.name}.IsSpawned = false.");
-                        return;
                     }
                     if (m_ProxyRpcTarget == null)
                     {

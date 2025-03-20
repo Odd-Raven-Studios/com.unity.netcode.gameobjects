@@ -1917,14 +1917,15 @@ namespace Unity.Netcode
 
             for (int i = 0; i < ChildNetworkBehaviours.Count; i++)
             {
-                if (ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
-                {
-                    ChildNetworkBehaviours[i].InternalOnGainedOwnership();
-                }
-                else
-                {
-                    Debug.LogWarning($"{ChildNetworkBehaviours[i].gameObject.name} is disabled! Netcode for GameObjects does not support disabled NetworkBehaviours! The {ChildNetworkBehaviours[i].GetType().Name} component was skipped during ownership assignment!");
-                }
+                // [PATCH] Allow deactivated NetworkBehaviours.
+                // if (ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
+                // {
+                ChildNetworkBehaviours[i].InternalOnGainedOwnership();
+                // }
+                // else
+                // {
+                //     Debug.LogWarning($"{ChildNetworkBehaviours[i].gameObject.name} is disabled! Netcode for GameObjects does not support disabled NetworkBehaviours! The {ChildNetworkBehaviours[i].GetType().Name} component was skipped during ownership assignment!");
+                // }
             }
         }
 
@@ -2416,20 +2417,21 @@ namespace Unity.Netcode
         internal void InvokeBehaviourNetworkPreSpawn()
         {
             var networkManager = NetworkManager;
+            // [PATCH] Allow deactivated NetworkBehaviours.
             for (int i = 0; i < ChildNetworkBehaviours.Count; i++)
             {
-                if (ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
-                {
-                    ChildNetworkBehaviours[i].NetworkPreSpawn(ref networkManager);
-                }
+                //    if (ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
+                //    {
+                ChildNetworkBehaviours[i].NetworkPreSpawn(ref networkManager);
+                //    }
             }
         }
 
         internal void InvokeBehaviourNetworkSpawn()
         {
-            NetworkManager.SpawnManager.UpdateOwnershipTable(this, OwnerClientId);
-
             gameObject.SetActive(true);
+
+            NetworkManager.SpawnManager.UpdateOwnershipTable(this, OwnerClientId);
 
             for (int i = 0; i < ChildNetworkBehaviours.Count; i++)
             {

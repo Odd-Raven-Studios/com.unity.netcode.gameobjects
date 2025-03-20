@@ -75,6 +75,10 @@ namespace Unity.Netcode.Components
         /// <inheritdoc />
         public void NetworkUpdate(NetworkUpdateStage updateStage)
         {
+            if (!m_NetworkAnimator || !m_NetworkAnimator.isActiveAndEnabled)
+            {
+                return;
+            }
             switch (updateStage)
             {
                 case NetworkUpdateStage.PreUpdate:
@@ -583,6 +587,7 @@ namespace Unity.Netcode.Components
             base.OnDestroy();
         }
 
+        private bool m_Initialized;
         protected virtual void Awake()
         {
             if (!m_Animator)
@@ -696,6 +701,9 @@ namespace Unity.Netcode.Components
 
             // Create our parameter write buffer for serialization
             m_ParameterWriter = new FastBufferWriter(totalParameterSize, Allocator.Persistent);
+
+            m_Initialized = true;
+
         }
 
         /// <summary>
@@ -728,12 +736,14 @@ namespace Unity.Netcode.Components
 
             // Create a handler for state changes
             m_NetworkAnimatorStateChangeHandler = new NetworkAnimatorStateChangeHandler(this);
+
         }
 
         /// <inheritdoc/>
         public override void OnNetworkDespawn()
         {
             SpawnCleanup();
+            m_Initialized = false;
         }
 
         /// <summary>
@@ -834,6 +844,10 @@ namespace Unity.Netcode.Components
         /// </summary>
         protected override void OnSynchronize<T>(ref BufferSerializer<T> serializer)
         {
+            if (!m_Initialized)
+            {
+                return;
+            }
             if (serializer.IsWriter)
             {
                 WriteSynchronizationData(ref serializer);
@@ -1345,6 +1359,10 @@ namespace Unity.Netcode.Components
         [ClientRpc]
         internal void SendParametersUpdateClientRpc(ParametersUpdateMessage parametersUpdate, ClientRpcParams clientRpcParams = default)
         {
+            if (!m_Initialized)
+            {
+                return;
+            }
             var isServerAuthoritative = IsServerAuthoritative();
             if (!isServerAuthoritative && !IsOwner || isServerAuthoritative)
             {
@@ -1398,6 +1416,10 @@ namespace Unity.Netcode.Components
         [ClientRpc]
         internal void SendAnimStateClientRpc(AnimationMessage animationMessage, ClientRpcParams clientRpcParams = default)
         {
+            if (!m_Initialized)
+            {
+                return;
+            }
             ProcessAnimStates(animationMessage);
         }
 
@@ -1499,6 +1521,10 @@ namespace Unity.Netcode.Components
         [ClientRpc]
         internal void SendAnimTriggerClientRpc(AnimationTriggerMessage animationTriggerMessage, ClientRpcParams clientRpcParams = default)
         {
+            if (!m_Initialized)
+            {
+                return;
+            }
             InternalSetTrigger(animationTriggerMessage.Hash, animationTriggerMessage.IsTriggerSet);
         }
 
