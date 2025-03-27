@@ -968,6 +968,10 @@ namespace Unity.Netcode.Components
         /// </remarks>
         internal void CheckForAnimatorChanges()
         {
+            if (!m_Initialized)
+            {
+                return;
+            }
             if (CheckParametersChanged())
             {
                 SendParametersUpdate();
