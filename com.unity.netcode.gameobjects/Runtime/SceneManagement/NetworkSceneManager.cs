@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Unity.Collections;
 using UnityEngine;
+using UnityEngine.Analytics;
 using UnityEngine.SceneManagement;
 
 
@@ -752,6 +753,11 @@ namespace Unity.Netcode
             }
         }
 
+        public void RegisterExternalSceneAlias(string sceneName, string alias)
+        {
+            ExternalSceneNameToHash[sceneName] = XXHash.Hash32(alias);
+        }
+
         /// <summary>
         /// Gets the scene name from a hash value generated from the full scene path
         /// </summary>
@@ -765,7 +771,14 @@ namespace Unity.Netcode
             {
                 return "No Scene";
             }
-            return GetSceneNameFromPath(ScenePathFromHash(sceneHash));
+            var path = ScenePathFromHash(sceneHash);
+            if (path.Contains("/"))
+            {
+                return GetSceneNameFromPath(path);
+            } else
+            {
+                return path;
+            }
         }
 
         /// <summary>
