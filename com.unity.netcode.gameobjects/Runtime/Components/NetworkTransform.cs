@@ -3952,12 +3952,7 @@ namespace Unity.Netcode.Components
             {
                 if (InLocalSpace)
                 {
-<<<<<<< HEAD
-                    SyncedTransform.localPosition = pos;
-                    SyncedTransform.localRotation = rot;
-=======
-                    transform.SetLocalPositionAndRotation(pos, rot);
->>>>>>> b78d4eb55e201e5afa9bd8565604d4bb78a9988a
+                    SyncedTransform.SetLocalPositionAndRotation(pos, rot);
                 }
                 else
                 {
