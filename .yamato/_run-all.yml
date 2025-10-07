@@ -2,13 +2,24 @@
 ---
 
 # DESCRIPTION--------------------------------------------------------------------------
-  # Those jobs group together related test as dependencies to allow to easily manage running a given set of tests.
-  # This enables efficient test execution for different validation scenarios
+# Those jobs group together related test as dependencies to allow to easily manage running a given set of tests.
+# This enables efficient test execution for different validation scenarios
 
 # QUALITY CONSIDERATIONS---------------------------------------------------------------
-  # It's important to ensure that all dependencies exist (this can be verified in Yamato) since a modification in parameters may result in a given job not being generated, and thus we will not be able to run such erroneous job.
+# It's important to ensure that all dependencies exist (this can be verified in Yamato) since a modification in parameters may result in a given job not being generated, and thus we will not be able to run such erroneous job.
 
 #-----------------------------------------------------------------------------------
+
+# This job runs the fastest checks (PVP and code standards)
+# This is mainly used to quickly validate the easy mistakes before for example running PR trigger jobs (see _triggers.yml)
+run_quick_checks:
+  name: Run Quick Initial Checks
+  dependencies:
+    - .yamato/package-pack.yml#package_pack_-_ngo_ubuntu
+    - .yamato/project-standards.yml#standards_ubuntu_testproject_trunk
+    # Run API validation to early-detect all new APIs that would force us to release new minor version of the package. Note that for this to work the package version in package.json must correspond to "actual package state" which means that it should be higher than last released version
+    - .yamato/vetting-test.yml#vetting_test
+
 
 # Runs all package tests
 run_all_package_tests:
@@ -29,6 +40,14 @@ run_all_package_tests_trunk:
 {% for editor in validation_editors.default -%}
     - .yamato/package-tests.yml#package_test_-_ngo_{{ editor }}_{{ platform.name }}
 {% endfor -%}
+{% endfor -%}
+
+# Runs all package tests on mimimum supported editor (6000.0 in case of NGOv2.X)
+run_all_package_tests_6000:
+  name: Run All Package Tests [6000.0]
+  dependencies:
+{% for platform in test_platforms.desktop -%}
+    - .yamato/package-tests.yml#package_test_-_ngo_6000.0_{{ platform.name }}
 {% endfor -%}
 
 
@@ -61,6 +80,18 @@ run_all_project_tests_trunk:
 {% endif -%}
 {% endfor -%}
 
+# Runs all projects tests on mimimum supported editor (6000.0 in case of NGOv2.X)
+run_all_project_tests_6000:
+  name: Run All Project Tests [6000.0]
+  dependencies:
+{% for project in projects.all -%}
+{% if project.has_tests == "true" -%}
+{% for platform in test_platforms.desktop -%}
+    - .yamato/project-tests.yml#test_{{ project.name }}_{{ platform.name }}_6000.0
+{% endfor -%}
+{% endif -%}
+{% endfor -%}
+
 
 # Runs all project standards check
 run_all_projects_standards:
@@ -81,11 +112,9 @@ run_all_webgl_builds:
   dependencies:
 {% for project in projects.default -%}
 {% for platform in test_platforms.desktop -%}
-{% if platform.name != "mac" -%} # There is an error about "Light baking could not be started because no valid OpenCL device could be found". Tracked in MTT-11726
 {% for editor in validation_editors.all -%}
     - .yamato/webgl-build.yml#webgl_build_{{ project.name }}_{{ platform.name }}_{{ editor }}
 {% endfor -%}
-{% endif -%}
 {% endfor -%}
 {% endfor -%}
 
@@ -96,11 +125,19 @@ run_all_webgl_builds_trunk:
   dependencies:
 {% for project in projects.default -%}
 {% for platform in test_platforms.desktop -%}
-{% if platform.name != "mac" -%} # There is an error about "Light baking could not be started because no valid OpenCL device could be found". Tracked in MTT-11726
 {% for editor in validation_editors.default -%}
     - .yamato/webgl-build.yml#webgl_build_{{ project.name }}_{{ platform.name }}_{{ editor }}
 {% endfor -%}
-{% endif -%}
+{% endfor -%}
+{% endfor -%}
+
+# Runs all WebGL builds on 6000.0 editor
+run_all_webgl_builds_6000:
+  name: Run All WebGl Build [6000.0]
+  dependencies:
+{% for project in projects.default -%}
+{% for platform in test_platforms.desktop -%}
+    - .yamato/webgl-build.yml#webgl_build_{{ project.name }}_{{ platform.name }}_6000.0
 {% endfor -%}
 {% endfor -%}
 
@@ -134,6 +171,18 @@ run_all_project_tests_desktop_standalone_trunk:
 {% endfor -%}
 {% endfor -%}
 
+# Runs all Desktop tests on mimimum supported editor (6000.0 in case of NGOv2.X)
+run_all_project_tests_desktop_standalone_6000:
+  name: Run All Standalone Tests - Desktop [6000.0]
+  dependencies:
+{% for project in projects.default -%}
+{% for platform in test_platforms.desktop -%}
+{% for backend in scripting_backends -%}
+    - .yamato/desktop-standalone-tests.yml#desktop_standalone_test_{{ project.name }}_{{ platform.name }}_{{ backend }}_6000.0
+{% endfor -%}
+{% endfor -%}
+{% endfor -%}
+
 # Runs all Mobile tests
 run_all_project_tests_mobile_standalone:
   name: Run All Standalone Tests - Mobile
@@ -156,6 +205,16 @@ run_all_project_tests_mobile_standalone_trunk:
 {% for editor in validation_editors.default -%}
     - .yamato/mobile-standalone-test.yml#mobile_standalone_test_{{ project.name }}_{{ platform.name }}_{{ editor }}
 {% endfor -%}
+{% endfor -%}
+{% endfor -%}
+
+# Runs all Mobile tests on mimimum supported editor (6000.0 in case of NGOv2.X)
+run_all_project_tests_mobile_standalone_6000:
+  name: Run All Standalone Tests - Mobile [6000.0]
+  dependencies:
+{% for project in projects.default -%}
+{% for platform in test_platforms.mobile_test -%}
+    - .yamato/mobile-standalone-test.yml#mobile_standalone_test_{{ project.name }}_{{ platform.name }}_6000.0
 {% endfor -%}
 {% endfor -%}
 
@@ -182,5 +241,15 @@ run_all_project_tests_console_standalone_trunk:
 {% for editor in validation_editors.default -%}
     - .yamato/console-standalone-test.yml#console_standalone_test_{{ project.name }}_{{ platform.name }}_{{ editor }}
 {% endfor -%}
+{% endfor -%}
+{% endfor -%}
+
+# Runs all Console tests on mimimum supported editor (6000.0 in case of NGOv2.X)
+run_all_project_tests_console_standalone_6000:
+  name: Run All Standalone Tests - Console [6000.0]
+  dependencies:
+{% for project in projects.default -%}
+{% for platform in test_platforms.console_test -%}
+    - .yamato/console-standalone-test.yml#console_standalone_test_{{ project.name }}_{{ platform.name }}_6000.0
 {% endfor -%}
 {% endfor -%}

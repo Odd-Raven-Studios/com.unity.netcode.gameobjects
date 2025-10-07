@@ -39,6 +39,9 @@ namespace Unity.Netcode
         [NonSerialized]
         public Dictionary<uint, uint> OverrideToNetworkPrefab = new Dictionary<uint, uint>();
 
+        /// <summary>
+        /// Gets the read-only list of all registered network prefabs
+        /// </summary>
         public IReadOnlyList<NetworkPrefab> Prefabs => m_Prefabs;
 
         [NonSerialized]
@@ -62,6 +65,9 @@ namespace Unity.Netcode
             m_Prefabs.Remove(networkPrefab);
         }
 
+        /// <summary>
+        /// Finalizer that ensures proper cleanup of network prefab resources
+        /// </summary>
         ~NetworkPrefabs()
         {
             Shutdown();
@@ -84,6 +90,7 @@ namespace Unity.Netcode
         /// Processes the <see cref="NetworkPrefabsList"/> if one is present for use during runtime execution,
         /// else processes <see cref="Prefabs"/>.
         /// </summary>
+        /// <param name="warnInvalid">When true, logs warnings about invalid prefabs that are removed during initialization</param>
         public void Initialize(bool warnInvalid = true)
         {
             m_Prefabs.Clear();
@@ -102,10 +109,7 @@ namespace Unity.Netcode
             {
                 foreach (var list in NetworkPrefabsLists)
                 {
-                    foreach (var networkPrefab in list.PrefabList)
-                    {
-                        prefabs.Add(networkPrefab);
-                    }
+                    prefabs.AddRange(list.PrefabList);
                 }
             }
 
@@ -147,7 +151,7 @@ namespace Unity.Netcode
                 if (NetworkLog.CurrentLogLevel <= LogLevel.Error)
                 {
                     var sb = new StringBuilder("Removing invalid prefabs from Network Prefab registration: ");
-                    sb.Append(string.Join(", ", removeList));
+                    sb.AppendJoin(", ", removeList);
                     NetworkLog.LogWarning(sb.ToString());
                 }
             }
@@ -156,6 +160,8 @@ namespace Unity.Netcode
         /// <summary>
         /// Add a new NetworkPrefab instance to the list
         /// </summary>
+        /// <param name="networkPrefab">The NetworkPrefab to add</param>
+        /// <returns>True if the prefab was successfully added, false if it was invalid or already registered</returns>
         /// <remarks>
         /// The framework does not synchronize this list between clients. Any runtime changes must be handled manually.
         ///
@@ -177,6 +183,7 @@ namespace Unity.Netcode
         /// <summary>
         /// Remove a NetworkPrefab instance from the list
         /// </summary>
+        /// <param name="prefab">The NetworkPrefab to remove</param>
         /// <remarks>
         /// The framework does not synchronize this list between clients. Any runtime changes must be handled manually.
         ///
@@ -199,6 +206,7 @@ namespace Unity.Netcode
         /// <summary>
         /// Remove a NetworkPrefab instance with matching <see cref="NetworkPrefab.Prefab"/> from the list
         /// </summary>
+        /// <param name="prefab">The GameObject to match against for removal</param>
         /// <remarks>
         /// The framework does not synchronize this list between clients. Any runtime changes must be handled manually.
         ///
