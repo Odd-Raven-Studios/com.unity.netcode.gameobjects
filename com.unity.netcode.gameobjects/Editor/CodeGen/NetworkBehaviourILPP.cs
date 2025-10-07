@@ -109,7 +109,7 @@ namespace Unity.Netcode.Editor.CodeGen
 
                 if (ImportReferences(mainModule, compiledAssembly.Defines))
                 {
-                    // process `NetworkBehaviour` types
+                    // process NetworkBehaviour types
                     try
                     {
                         mainModule.GetTypes()
@@ -563,6 +563,7 @@ namespace Unity.Netcode.Editor.CodeGen
             typeof(Vector3Int),
             typeof(Vector4),
             typeof(Quaternion),
+            typeof(Pose),
             typeof(Color),
             typeof(Color32),
             typeof(Ray),
@@ -1430,11 +1431,7 @@ namespace Unity.Netcode.Editor.CodeGen
                     MethodReference callMethod = rpcHandler;
                     if (typeDefinition.HasGenericParameters)
                     {
-                        var genericTypes = new List<TypeReference>();
-                        foreach (var parameter in typeDefinition.GenericParameters)
-                        {
-                            genericTypes.Add(parameter);
-                        }
+                        var genericTypes = new List<TypeReference>(typeDefinition.GenericParameters);
                         callMethod = callMethod.MakeGeneric(genericTypes.ToArray());
                     }
 
@@ -3100,11 +3097,7 @@ namespace Unity.Netcode.Editor.CodeGen
             var callMethod = (MethodReference)methodDefinition;
             if (castType.HasGenericParameters)
             {
-                var genericTypes = new List<TypeReference>();
-                foreach (var parameter in castType.GenericParameters)
-                {
-                    genericTypes.Add(parameter);
-                }
+                var genericTypes = new List<TypeReference>(castType.GenericParameters);
                 castType = castType.MakeGenericInstanceType(genericTypes.ToArray());
                 callMethod = callMethod.MakeGeneric(genericTypes.ToArray());
             }

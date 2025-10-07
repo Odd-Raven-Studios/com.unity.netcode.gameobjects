@@ -6,7 +6,7 @@ namespace Unity.Netcode
     {
         public int Version => 0;
 
-        private const string k_Name = "DestroyObjectMessage";
+        private const string k_Name = "ParentSyncMessage";
 
         public ulong NetworkObjectId;
 
@@ -87,12 +87,20 @@ namespace Unity.Netcode
             reader.ReadValueSafe(out Rotation);
             reader.ReadValueSafe(out Scale);
 
-            // If the target NetworkObject does not exist =or= the target latest parent does not exist then defer the message
-            if (!networkManager.SpawnManager.SpawnedObjects.ContainsKey(NetworkObjectId) || (LatestParent.HasValue && !networkManager.SpawnManager.SpawnedObjects.ContainsKey(LatestParent.Value)))
+            // If the target NetworkObject does not exist then defer this message until it does.
+            if (!networkManager.SpawnManager.SpawnedObjects.ContainsKey(NetworkObjectId))
             {
                 networkManager.DeferredMessageManager.DeferMessage(IDeferredNetworkMessageManager.TriggerType.OnSpawn, NetworkObjectId, reader, ref context, k_Name);
                 return false;
             }
+
+            // If the target parent does not exist, then defer this message until it does.
+            if (LatestParent.HasValue && !networkManager.SpawnManager.SpawnedObjects.ContainsKey(LatestParent.Value))
+            {
+                networkManager.DeferredMessageManager.DeferMessage(IDeferredNetworkMessageManager.TriggerType.OnSpawn, LatestParent.Value, reader, ref context, k_Name);
+                return false;
+            }
+
             return true;
         }
 
@@ -122,13 +130,11 @@ namespace Unity.Netcode
                 // the values of the server-side post-parenting transform values
                 if (!WorldPositionStays)
                 {
-                    networkObject.transform.localPosition = Position;
-                    networkObject.transform.localRotation = Rotation;
+                    networkObject.transform.SetLocalPositionAndRotation(Position, Rotation);
                 }
                 else
                 {
-                    networkObject.transform.position = Position;
-                    networkObject.transform.rotation = Rotation;
+                    networkObject.transform.SetPositionAndRotation(Position, Rotation);
                 }
                 networkObject.transform.localScale = Scale;
             }

@@ -61,7 +61,7 @@ namespace Unity.Netcode.RuntimeTests
             DeferredDespawnDaisyChained.ClientRelativeInstances = new Dictionary<ulong, Dictionary<ulong, DeferredDespawnDaisyChained>>();
 
             // Spawn the initial object
-            var rootInstance = SpawnObject(m_DaisyChainedDespawnObjects[0], m_ServerNetworkManager);
+            var rootInstance = SpawnObject(m_DaisyChainedDespawnObjects[0], GetAuthorityNetworkManager());
             DeferredDespawnDaisyChained.ReachedLastChainInstance = ReachedLastChainObject;
 
             // Wait for the chain of objects to spawn and despawn
@@ -81,14 +81,9 @@ namespace Unity.Netcode.RuntimeTests
 
         private bool HaveAllClientsReachedEndOfChain()
         {
-            if (!m_HasReachedEnd.Contains(m_ServerNetworkManager.LocalClientId))
+            foreach (var manager in m_NetworkManagers)
             {
-                return false;
-            }
-
-            foreach (var client in m_ClientNetworkManagers)
-            {
-                if (!m_HasReachedEnd.Contains(client.LocalClientId))
+                if (!m_HasReachedEnd.Contains(manager.LocalClientId))
                 {
                     return false;
                 }
