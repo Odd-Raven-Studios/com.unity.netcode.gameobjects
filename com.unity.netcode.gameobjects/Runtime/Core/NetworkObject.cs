@@ -798,7 +798,7 @@ namespace Unity.Netcode
             };
 
             var sendTarget = NetworkManager.DAHost ? OwnerClientId : NetworkManager.ServerClientId;
-            NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, NetworkDelivery.Reliable, sendTarget);
+            NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, MessageDeliveryType<ChangeOwnershipMessage>.DefaultDelivery, sendTarget);
 
             return OwnershipRequestStatus.RequestSent;
         }
@@ -885,7 +885,7 @@ namespace Unity.Netcode
                 };
 
                 var sendTarget = NetworkManager.DAHost ? clientRequestingOwnership : NetworkManager.ServerClientId;
-                NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, NetworkDelivery.Reliable, sendTarget);
+                NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, MessageDeliveryType<ChangeOwnershipMessage>.DefaultDelivery, sendTarget);
             }
         }
 
@@ -1080,14 +1080,14 @@ namespace Unity.Netcode
                     {
                         continue;
                     }
-                    NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, NetworkDelivery.Reliable, clientId);
+                    NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, MessageDeliveryType<ChangeOwnershipMessage>.DefaultDelivery, clientId);
                 }
             }
             else
             {
                 changeOwnership.ClientIdCount = Observers.Count;
                 changeOwnership.ClientIds = Observers.ToArray();
-                NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, NetworkDelivery.Reliable, NetworkManager.ServerClientId);
+                NetworkManager.ConnectionManager.SendMessage(ref changeOwnership, MessageDeliveryType<ChangeOwnershipMessage>.DefaultDelivery, NetworkManager.ServerClientId);
             }
         }
 
@@ -1367,12 +1367,12 @@ namespace Unity.Netcode
         ///  the most important part to uniquely identify in-scene
         ///  placed NetworkObjects
         /// </summary>
-        internal int SceneOriginHandle = 0;
+        internal NetworkSceneHandle SceneOriginHandle;
 
         /// <summary>
         /// The server-side scene origin handle
         /// </summary>
-        internal int NetworkSceneHandle = 0;
+        internal NetworkSceneHandle NetworkSceneHandle;
 
         private Scene m_SceneOrigin;
         /// <summary>
@@ -1393,7 +1393,7 @@ namespace Unity.Netcode
             {
                 // The scene origin should only be set once.
                 // Once set, it should never change.
-                if (SceneOriginHandle == 0 && value.IsValid() && value.isLoaded)
+                if (SceneOriginHandle.IsEmpty() && value.IsValid() && value.isLoaded)
                 {
                     m_SceneOrigin = value;
                     SceneOriginHandle = value.handle;
@@ -1405,13 +1405,13 @@ namespace Unity.Netcode
         /// Helper method to return the correct scene handle
         /// Note: Do not use this within NetworkSpawnManager.SpawnNetworkObjectLocallyCommon
         /// </summary>
-        internal int GetSceneOriginHandle()
+        internal NetworkSceneHandle GetSceneOriginHandle()
         {
-            if (SceneOriginHandle == 0 && IsSpawned && IsSceneObject != false)
+            if (SceneOriginHandle.IsEmpty() && IsSpawned && IsSceneObject != false)
             {
                 throw new Exception($"{nameof(GetSceneOriginHandle)} called when {nameof(SceneOriginHandle)} is still zero but the {nameof(NetworkObject)} is already spawned!");
             }
-            return SceneOriginHandle != 0 ? SceneOriginHandle : gameObject.scene.handle;
+            return !SceneOriginHandle.IsEmpty() ? SceneOriginHandle : gameObject.scene.handle;
         }
 
         /// <summary>
@@ -1611,12 +1611,12 @@ namespace Unity.Netcode
                     if (!NetworkManager.DAHost)
                     {
                         // Send destroy call to service or DAHost
-                        size = NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, NetworkManager.ServerClientId);
+                        size = NetworkManager.ConnectionManager.SendMessage(ref message, MessageDeliveryType<DestroyObjectMessage>.DefaultDelivery, NetworkManager.ServerClientId);
                     }
                     else // DAHost mocking service
                     {
                         // Send destroy call
-                        size = NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, clientId);
+                        size = NetworkManager.ConnectionManager.SendMessage(ref message, MessageDeliveryType<DestroyObjectMessage>.DefaultDelivery, clientId);
                         // Broadcast the destroy to all clients so they can update their observers list
                         foreach (var client in NetworkManager.ConnectionManager.ConnectedClientIds)
                         {
@@ -1624,14 +1624,14 @@ namespace Unity.Netcode
                             {
                                 continue;
                             }
-                            size += NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, client);
+                            size += NetworkManager.ConnectionManager.SendMessage(ref message, MessageDeliveryType<DestroyObjectMessage>.DefaultDelivery, client);
                         }
                     }
                 }
                 else
                 {
                     // Send destroy call
-                    size = NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, clientId);
+                    size = NetworkManager.ConnectionManager.SendMessage(ref message, MessageDeliveryType<DestroyObjectMessage>.DefaultDelivery, clientId);
                 }
                 NetworkManager.NetworkMetrics.TrackObjectDestroySent(clientId, this, size);
             }
@@ -1738,18 +1738,28 @@ namespace Unity.Netcode
                 if (!NetworkManager.ShutdownInProgress)
                 {
                     // Since we still have a session connection, log locally and on the server to inform user of this issue.
-                    if (NetworkManager.LogLevel <= LogLevel.Error)
+                    // If the NetworkObject's GameObject is not valid or the scene is no longer valid or loaded, then this was due to the
+                    // unloading of a scene which is done by the authority...
+                    if (gameObject != null && gameObject.scene.IsValid() && gameObject.scene.isLoaded)
                     {
-                        if (NetworkManager.DistributedAuthorityMode)
+                        if (NetworkManager.LogLevel <= LogLevel.Error)
                         {
-                            NetworkLog.LogError($"[Invalid Destroy][{gameObject.name}][NetworkObjectId:{NetworkObjectId}] Destroy a spawned {nameof(NetworkObject)} on a non-owner client is not valid during a distributed authority session. Call {nameof(Destroy)} or {nameof(Despawn)} on the client-owner instead.");
+                            if (NetworkManager.DistributedAuthorityMode)
+                            {
+                                NetworkLog.LogError($"[Invalid Destroy][{gameObject.name}][NetworkObjectId:{NetworkObjectId}] Destroy a spawned {nameof(NetworkObject)} on a non-owner client is not valid during a distributed authority session. Call {nameof(Destroy)} or {nameof(Despawn)} on the client-owner instead.");
+                            }
+                            else
+                            {
+                                NetworkLog.LogErrorServer($"[Invalid Destroy][{gameObject.name}][NetworkObjectId:{NetworkObjectId}] Destroy a spawned {nameof(NetworkObject)} on a non-host client is not valid. Call {nameof(Destroy)} or {nameof(Despawn)} on the server/host instead.");
+                            }
                         }
-                        else
-                        {
-                            NetworkLog.LogErrorServer($"[Invalid Destroy][{gameObject.name}][NetworkObjectId:{NetworkObjectId}] Destroy a spawned {nameof(NetworkObject)} on a non-host client is not valid. Call {nameof(Destroy)} or {nameof(Despawn)} on the server/host instead.");
-                        }
+                        return;
                     }
-                    return;
+                    else
+                    {
+                        // If the destroy was authority scene event triggered, then mark this destroy as authority triggered.
+                        isAuthorityDestroy = true;
+                    }
                 }
                 // Otherwise, clients can despawn NetworkObjects while shutting down and should not generate any messages when this happens
             }
@@ -1825,7 +1835,7 @@ namespace Unity.Netcode
                 }
             }
 
-            NetworkManager.SpawnManager.SpawnNetworkObjectLocally(this, NetworkManager.SpawnManager.GetNetworkObjectId(), IsSceneObject.HasValue && IsSceneObject.Value, playerObject, ownerClientId, destroyWithScene);
+            NetworkManager.SpawnManager.AuthorityLocalSpawn(this, NetworkManager.SpawnManager.GetNetworkObjectId(), IsSceneObject.HasValue && IsSceneObject.Value, playerObject, ownerClientId, destroyWithScene);
 
             if ((NetworkManager.DistributedAuthorityMode && NetworkManager.DAHost) || (!NetworkManager.DistributedAuthorityMode && NetworkManager.IsServer))
             {
@@ -1927,7 +1937,7 @@ namespace Unity.Netcode
                 return null;
             }
 
-            return networkManager.SpawnManager.InstantiateAndSpawnNoParameterChecks(this, ownerClientId, destroyWithScene, isPlayerObject, forceOverride, position, rotation);
+            return networkManager.SpawnManager.InstantiateAndSpawnNoParameterChecks(this, networkManager, ownerClientId, destroyWithScene, isPlayerObject, forceOverride, position, rotation);
         }
 
         /// <summary>
@@ -1943,6 +1953,12 @@ namespace Unity.Netcode
         /// <summary>
         /// Spawns a <see cref="NetworkObject"/> across the network with a given owner. Can only be called from server
         /// </summary>
+        /// <remarks>
+        /// When using a client-server or distributed authority network topology, you should take into consideration any components
+        /// that might require ownership checks while running through the spawn process. To avoid issues that could arise by initially spawning
+        /// without ownership, it is recommended to use <see cref="Spawn"/> first, so it is spawned as both the owner and the authority, and then use <see cref="ChangeOwnership(ulong)"/>
+        /// to change the ownership to the intended client.<br />
+        /// </remarks>
         /// <param name="clientId">The clientId to own the object</param>
         /// <param name="destroyWithScene">Should the object be destroyed when the scene is changed</param>
         public void SpawnWithOwnership(ulong clientId, bool destroyWithScene = false)
@@ -1966,6 +1982,12 @@ namespace Unity.Netcode
         /// <param name="destroy">(true) the <see cref="GameObject"/> will be destroyed (false) the <see cref="GameObject"/> will persist after being despawned</param>
         public void Despawn(bool destroy = true)
         {
+            if (!IsSpawned)
+            {
+                NetworkLog.LogErrorServer("Object is not spawned!");
+                return;
+            }
+
             foreach (var behavior in ChildNetworkBehaviours)
             {
                 behavior.MarkVariablesDirty(false);
@@ -2062,6 +2084,12 @@ namespace Unity.Netcode
         {
             for (int i = 0; i < ChildNetworkBehaviours.Count; i++)
             {
+                // Any NetworkBehaviour that is not spawned and the associated GameObject is disabled should be
+                // skipped over (i.e. not supported).
+                if (!ChildNetworkBehaviours[i].IsSpawned && !ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
                 // Invoke internal notification
                 ChildNetworkBehaviours[i].InternalOnNetworkObjectParentChanged(parentNetworkObject);
                 // Invoke public notification
@@ -2305,9 +2333,10 @@ namespace Unity.Netcode
             }
             var removeParent = false;
             var parentTransform = transform.parent;
+            var parentObject = (NetworkObject)null;
             if (parentTransform != null)
             {
-                if (!transform.parent.TryGetComponent<NetworkObject>(out var parentObject))
+                if (!transform.parent.TryGetComponent(out parentObject))
                 {
                     transform.parent = m_CachedParent;
                     AuthorityAppliedParenting = false;
@@ -2355,47 +2384,29 @@ namespace Unity.Netcode
                 m_CachedWorldPositionStays = true;
             }
 
-            // If we are connected to a CMB service or we are running a mock CMB service then send to the "server" identifier
-            if (distributedAuthority || (!distributedAuthority && AllowOwnerToParent && IsOwner && !NetworkManager.IsServer))
+            // If we're not the server, we should tell the server about this parent change
+            if (!NetworkManager.IsServer)
             {
-                if (!NetworkManager.DAHost)
+                // Don't send a message in DA mode if we're the only observers of this object (we're the only authority).
+                if (distributedAuthority && Observers.Count <= 1)
                 {
-                    NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, 0);
                     return;
                 }
-                else
-                {
-                    foreach (var clientId in NetworkManager.ConnectionManager.ConnectedClientIds)
-                    {
-                        if (clientId == NetworkManager.ServerClientId)
-                        {
-                            continue;
-                        }
-                        NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, clientId);
-                    }
-                }
+
+                NetworkManager.ConnectionManager.SendMessage(ref message, MessageDeliveryType<ParentSyncMessage>.DefaultDelivery, NetworkManager.ServerClientId);
+                return;
             }
-            else
+
+            // Otherwise we are a Server (client-server or DAHost). Send to all observers
+            foreach (var clientId in NetworkManager.ConnectionManager.ConnectedClientIds)
             {
-                // Otherwise we are running in client-server =or= this has to be a DAHost instance.
-                // Send to all connected clients.
-                unsafe
+                if (clientId == NetworkManager.ServerClientId)
                 {
-                    var maxCount = NetworkManager.ConnectedClientsIds.Count;
-                    ulong* clientIds = stackalloc ulong[maxCount];
-                    int idx = 0;
-                    foreach (var clientId in NetworkManager.ConnectionManager.ConnectedClientIds)
-                    {
-                        if (clientId == NetworkManager.ServerClientId)
-                        {
-                            continue;
-                        }
-                        if (Observers.Contains(clientId))
-                        {
-                            clientIds[idx++] = clientId;
-                        }
-                    }
-                    NetworkManager.ConnectionManager.SendMessage(ref message, NetworkDelivery.ReliableSequenced, clientIds, idx);
+                    continue;
+                }
+                if (Observers.Contains(clientId))
+                {
+                    NetworkManager.ConnectionManager.SendMessage(ref message, MessageDeliveryType<ParentSyncMessage>.DefaultDelivery, clientId);
                 }
             }
         }
@@ -2540,10 +2551,7 @@ namespace Unity.Netcode
             // [PATCH] Allow deactivated NetworkBehaviours.
             for (int i = 0; i < ChildNetworkBehaviours.Count; i++)
             {
-                //    if (ChildNetworkBehaviours[i].gameObject.activeInHierarchy)
-                //    {
                 ChildNetworkBehaviours[i].NetworkPreSpawn(ref networkManager, this);
-                //    }
             }
         }
 
@@ -2561,7 +2569,6 @@ namespace Unity.Netcode
                 //    Debug.LogWarning($"{childBehaviour.gameObject.name} is disabled! Netcode for GameObjects does not support spawning disabled NetworkBehaviours! The {childBehaviour.GetType().Name} component was skipped during spawn!");
                 //    continue;
                 //}
-
                 childBehaviour.InternalOnNetworkSpawn();
             }
         }
@@ -2622,6 +2629,11 @@ namespace Unity.Netcode
 
         private List<NetworkBehaviour> m_ChildNetworkBehaviours;
 
+        internal string GenerateDisabledNetworkBehaviourWarning(NetworkBehaviour networkBehaviour)
+        {
+            return $"[{name}][{networkBehaviour.GetType().Name}][{nameof(isActiveAndEnabled)}: {networkBehaviour.isActiveAndEnabled}] Disabled {nameof(NetworkBehaviour)}s will be excluded from spawning and synchronization!";
+        }
+
         internal List<NetworkBehaviour> ChildNetworkBehaviours
         {
             get
@@ -2644,7 +2656,8 @@ namespace Unity.Netcode
                     }
 
                     // Set ourselves as the NetworkObject that this behaviour belongs to and add it to the child list
-                    networkBehaviours[i].SetNetworkObject(this);
+                    var nextIndex = (ushort)m_ChildNetworkBehaviours.Count;
+                    networkBehaviours[i].SetNetworkObject(this, nextIndex);
                     m_ChildNetworkBehaviours.Add(networkBehaviours[i]);
 
                     var type = networkBehaviours[i].GetType();
@@ -2916,7 +2929,7 @@ namespace Unity.Netcode
             public NetworkObject OwnerObject;
             public ulong TargetClientId;
 
-            public int NetworkSceneHandle;
+            public NetworkSceneHandle NetworkSceneHandle;
 
             internal int SynchronizationDataSize;
 
@@ -3255,6 +3268,8 @@ namespace Unity.Netcode
                 return null;
             }
 
+            networkObject.NetworkManagerOwner = networkManager;
+
             // This will get set again when the NetworkObject is spawned locally, but we set it here ahead of spawning
             // in order to be able to determine which NetworkVariables the client will be allowed to read.
             networkObject.OwnerClientId = sceneObject.OwnerClientId;
@@ -3296,8 +3311,9 @@ namespace Unity.Netcode
                 throw new SpawnStateException($"[{networkObject.name}] Object-{networkObject.NetworkObjectId} is already spawned!");
             }
 
-            // Do not invoke Pre spawn here (SynchronizeNetworkBehaviours needs to be invoked prior to this)
-            networkManager.SpawnManager.SpawnNetworkObjectLocallyCommon(networkObject, sceneObject.NetworkObjectId, sceneObject.IsSceneObject, sceneObject.IsPlayerObject, sceneObject.OwnerClientId, sceneObject.DestroyWithScene);
+            // Invoke the non-authority local spawn method
+            // (It also invokes post spawn and handles processing derferred messages)
+            networkManager.SpawnManager.NonAuthorityLocalSpawn(networkObject, sceneObject, sceneObject.DestroyWithScene);
 
             if (sceneObject.SyncObservers)
             {
@@ -3429,7 +3445,7 @@ namespace Unity.Netcode
             {
                 // Since the authority is the source of truth for the NetworkSceneHandle,
                 // the NetworkSceneHandle is the same as the SceneOriginHandle.
-                if (NetworkManager.DistributedAuthorityMode)
+                if (NetworkManager.DistributedAuthorityMode && NetworkManager.SceneManager.ClientSceneHandleToServerSceneHandle.ContainsKey(SceneOriginHandle))
                 {
                     NetworkSceneHandle = NetworkManager.SceneManager.ClientSceneHandleToServerSceneHandle[SceneOriginHandle];
                 }
@@ -3437,7 +3453,6 @@ namespace Unity.Netcode
                 {
                     NetworkSceneHandle = SceneOriginHandle;
                 }
-
             }
             else // Otherwise, the client did not find the client to server scene handle
             if (NetworkManager.LogLevel == LogLevel.Developer)
