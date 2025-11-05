@@ -1970,7 +1970,7 @@ namespace Unity.Netcode.Components
                     // that is outside of the normal internal tick flow.
                     m_LocalAuthoritativeNetworkState.NetworkTick = m_CachedNetworkManager.NetworkTickSystem.ServerTime.Tick;
 
-                    if (SwitchTransformSpaceWhenParented && m_LocalAuthoritativeNetworkState.ExplicitSet && m_LocalAuthoritativeNetworkState.IsDirty && transform.parent != null && !m_LocalAuthoritativeNetworkState.InLocalSpace)
+                    if (SwitchTransformSpaceWhenParented && m_LocalAuthoritativeNetworkState.ExplicitSet && m_LocalAuthoritativeNetworkState.IsDirty && SyncedTransform.parent != null && !m_LocalAuthoritativeNetworkState.InLocalSpace)
                     {
                         InLocalSpace = true;
                         CheckForStateChange(ref m_LocalAuthoritativeNetworkState, ref transformToCommit, synchronize, forceState: true);
@@ -2141,7 +2141,7 @@ namespace Unity.Netcode.Components
             {
                 // When SwitchTransformSpaceWhenParented is set we automatically set our local space based on whether
                 // we are parented or not.
-                networkState.InLocalSpace = SwitchTransformSpaceWhenParented ? transform.parent != null : InLocalSpace;
+                networkState.InLocalSpace = SwitchTransformSpaceWhenParented ? SyncedTransform.parent != null : InLocalSpace;
                 if (SwitchTransformSpaceWhenParented)
                 {
                     InLocalSpace = networkState.InLocalSpace;
@@ -2592,11 +2592,11 @@ namespace Unity.Netcode.Components
                 {
                     m_PositionInterpolator.AutoConvertTransformSpace = SwitchTransformSpaceWhenParented;
                     m_PositionInterpolator.InLocalSpace = InLocalSpace;
-                    m_PositionInterpolator.ResetTo(transform.parent, position, time);
+                    m_PositionInterpolator.ResetTo(SyncedTransform.parent, position, time);
                 }
                 else
                 {
-                    m_PositionInterpolator.AddMeasurement(transform.parent, position, time);
+                    m_PositionInterpolator.AddMeasurement(SyncedTransform.parent, position, time);
                 }
             }
         }
@@ -2828,7 +2828,7 @@ namespace Unity.Netcode.Components
                     else
                     {
                         // Preserve any non-synchronized changes to the local instance's rotation
-                        var rotation = InLocalSpace ? transform.localRotation.eulerAngles : transform.rotation.eulerAngles;
+                        var rotation = InLocalSpace ? SyncedTransform.localRotation.eulerAngles : SyncedTransform.rotation.eulerAngles;
                         var currentEuler = m_InternalCurrentRotation.eulerAngles;
                         var updatedEuler = adjustedRotation.eulerAngles;
                         currentEuler.x = SyncRotAngleX ? updatedEuler.x : rotation.x;
@@ -2870,7 +2870,7 @@ namespace Unity.Netcode.Components
                     else
                     {
                         // Preserve any non-synchronized changes to the local instance's scale
-                        var scale = transform.localScale;
+                        var scale = SyncedTransform.localScale;
                         m_InternalCurrentScale.x = SyncScaleX ? adjustedScale.x : scale.x;
                         m_InternalCurrentScale.y = SyncScaleY ? adjustedScale.y : scale.y;
                         m_InternalCurrentScale.z = SyncScaleZ ? adjustedScale.z : scale.z;
@@ -3072,7 +3072,7 @@ namespace Unity.Netcode.Components
                 {
                     m_RotationInterpolator.AutoConvertTransformSpace = SwitchTransformSpaceWhenParented;
                     m_RotationInterpolator.InLocalSpace = newState.InLocalSpace;
-                    m_RotationInterpolator.ResetTo(transform.parent, currentRotation, sentTime);
+                    m_RotationInterpolator.ResetTo(SyncedTransform.parent, currentRotation, sentTime);
                 }
             }
 
@@ -3217,7 +3217,7 @@ namespace Unity.Netcode.Components
                     }
                 }
                 m_TargetScale = currentScale;
-                m_ScaleInterpolator.AddMeasurement(transform.parent, currentScale, sentTime);
+                m_ScaleInterpolator.AddMeasurement(SyncedTransform.parent, currentScale, sentTime);
             }
 
             // With rotation, we check if there are any changes first and
@@ -3252,7 +3252,7 @@ namespace Unity.Netcode.Components
                     currentRotation.eulerAngles = currentEulerAngles;
                 }
 
-                m_RotationInterpolator.AddMeasurement(transform.parent, currentRotation, sentTime);
+                m_RotationInterpolator.AddMeasurement(SyncedTransform.parent, currentRotation, sentTime);
             }
         }
 
@@ -3924,11 +3924,11 @@ namespace Unity.Netcode.Components
                         m_PositionInterpolator.ResetTo(m_PositionInterpolator.Parent, m_InternalCurrentPosition, NetworkManager.ServerTime.Time);
                         if (InLocalSpace)
                         {
-                            transform.localPosition = m_InternalCurrentPosition;
+                            SyncedTransform.localPosition = m_InternalCurrentPosition;
                         }
                         else
                         {
-                            transform.position = m_InternalCurrentPosition;
+                            SyncedTransform.position = m_InternalCurrentPosition;
                         }
                     }
                     else
@@ -3956,11 +3956,11 @@ namespace Unity.Netcode.Components
                         m_RotationInterpolator.ResetTo(m_RotationInterpolator.Parent, m_InternalCurrentRotation, NetworkManager.ServerTime.Time);
                         if (InLocalSpace)
                         {
-                            transform.localRotation = m_InternalCurrentRotation;
+                            SyncedTransform.localRotation = m_InternalCurrentRotation;
                         }
                         else
                         {
-                            transform.rotation = m_InternalCurrentRotation;
+                            SyncedTransform.rotation = m_InternalCurrentRotation;
                         }
                     }
                     else
