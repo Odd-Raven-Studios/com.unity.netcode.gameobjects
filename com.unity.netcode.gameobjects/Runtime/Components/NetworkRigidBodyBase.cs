@@ -2,6 +2,7 @@
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
+
 namespace Unity.Netcode.Components
 {
     /// <summary>
@@ -52,6 +53,7 @@ namespace Unity.Netcode.Components
 #endif
 
 
+        private NetworkManager m_LocalNetworkManager;
         // Used to cache the authority state of this Rigidbody during the last frame
         private bool m_IsAuthority;
 
@@ -570,7 +572,7 @@ namespace Unity.Netcode.Components
         {
             var quaternion = Quaternion.identity;
             var angles = quaternion.eulerAngles;
-            angles.z = m_InternalRigidbody2D.rotation;
+            angles.z = rotation.z;
             quaternion.eulerAngles = angles;
             m_InternalRigidbody2D.MoveRotation(quaternion);
         }
@@ -844,6 +846,28 @@ namespace Unity.Netcode.Components
             PostSetIsKinematic();
         }
 
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool HasInterpolationTypeSet(InterpolationTypes interpolationType)
+        {
+#if COM_UNITY_MODULES_PHYSICS && COM_UNITY_MODULES_PHYSICS2D
+            if (m_IsRigidbody2D)
+            {
+                return interpolationType == InterpolationTypes.Extrapolate ? m_InternalRigidbody2D.interpolation == RigidbodyInterpolation2D.Extrapolate : m_InternalRigidbody2D.interpolation == RigidbodyInterpolation2D.Interpolate;
+            }
+            else
+            {
+                return interpolationType == InterpolationTypes.Extrapolate ? m_InternalRigidbody.interpolation == RigidbodyInterpolation.Extrapolate : m_InternalRigidbody.interpolation == RigidbodyInterpolation.Interpolate;
+            }
+#endif
+#if COM_UNITY_MODULES_PHYSICS && !COM_UNITY_MODULES_PHYSICS2D
+            return interpolationType == InterpolationTypes.Extrapolate ? m_InternalRigidbody.interpolation == RigidbodyInterpolation.Extrapolate : m_InternalRigidbody.interpolation == RigidbodyInterpolation.Interpolate;
+#endif
+#if !COM_UNITY_MODULES_PHYSICS && COM_UNITY_MODULES_PHYSICS2D
+            return interpolationType == InterpolationTypes.Extrapolate ? m_InternalRigidbody2D.interpolation == RigidbodyInterpolation2D.Extrapolate : m_InternalRigidbody2D.interpolation == RigidbodyInterpolation2D.Interpolate;
+#endif
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void PostSetIsKinematic()
         {
@@ -852,26 +876,29 @@ namespace Unity.Netcode.Components
             {
                 return;
             }
+
             if (UseRigidBodyForMotion)
             {
-                // Only if the NetworkTransform is set to interpolate do we need to check for extrapolation
-                if (NetworkTransform.Interpolate && m_OriginalInterpolation == InterpolationTypes.Extrapolate)
+                // Exit early if the original interpolation type is not set to extrapolate or NetworkTransform interpolate is disabled
+                if (m_OriginalInterpolation != InterpolationTypes.Extrapolate || !NetworkTransform.Interpolate)
                 {
-                    if (IsKinematic())
-                    {
-                        // If not already set to interpolate then set the Rigidbody to interpolate
-                        if (m_InternalRigidbody.interpolation == RigidbodyInterpolation.Extrapolate)
-                        {
-                            // Sleep until the next fixed update when switching from extrapolation to interpolation
-                            SleepRigidbody();
-                            SetInterpolation(InterpolationTypes.Interpolate);
-                        }
-                    }
-                    else
-                    {
-                        // Switch it back to the original interpolation if non-kinematic (doesn't require sleep).
-                        SetInterpolation(m_OriginalInterpolation);
-                    }
+                    return;
+                }
+
+                // Otherwise, if this is the active physics object
+                if (!IsKinematic())
+                {
+                    // switch it back to the original interpolation and exit early
+                    SetInterpolation(m_OriginalInterpolation);
+                    return;
+                }
+
+                // If the Rigidbody or Rigidbody2D is currently configured to extrapolate
+                if (HasInterpolationTypeSet(InterpolationTypes.Extrapolate))
+                {
+                    // sleep until the next fixed update when switching from extrapolation to interpolation
+                    SleepRigidbody();
+                    SetInterpolation(InterpolationTypes.Interpolate);
                 }
             }
             else
@@ -971,7 +998,7 @@ namespace Unity.Netcode.Components
         /// </remarks>
         internal void UpdateOwnershipAuthority()
         {
-            if (NetworkManager.DistributedAuthorityMode)
+            if (m_LocalNetworkManager.DistributedAuthorityMode)
             {
                 // When in distributed authority mode, always use HasAuthority
                 m_IsAuthority = HasAuthority;
@@ -980,7 +1007,7 @@ namespace Unity.Netcode.Components
             {
                 if (NetworkTransform.IsServerAuthoritative())
                 {
-                    m_IsAuthority = NetworkManager.IsServer;
+                    m_IsAuthority = m_LocalNetworkManager.IsServer;
                 }
                 else
                 {
@@ -994,11 +1021,16 @@ namespace Unity.Netcode.Components
             }
         }
 
+        internal override void InternalOnNetworkPreSpawn(ref NetworkManager networkManager)
+        {
+            m_LocalNetworkManager = networkManager;
+        }
+
         /// <inheritdoc />
         public override void OnNetworkSpawn()
         {
-            m_TickFrequency = 1.0f / NetworkManager.NetworkConfig.TickRate;
-            m_TickRate = NetworkManager.NetworkConfig.TickRate;
+            m_TickFrequency = 1.0f / m_LocalNetworkManager.NetworkConfig.TickRate;
+            m_TickRate = m_LocalNetworkManager.NetworkConfig.TickRate;
             UpdateOwnershipAuthority();
         }
 

@@ -7,6 +7,7 @@ namespace Unity.Netcode
     /// <summary>
     /// Defines update timing constraints for NetworkVariables
     /// </summary>
+    [Serializable]
     public struct NetworkVariableUpdateTraits
     {
         /// <summary>
@@ -25,6 +26,7 @@ namespace Unity.Netcode
     /// <summary>
     /// Interface for network value containers
     /// </summary>
+    [Serializable]
     public abstract class NetworkVariableBase : IDisposable
     {
         [SerializeField]
@@ -138,6 +140,38 @@ namespace Unity.Netcode
             {
                 Debug.LogWarning($"[{m_NetworkBehaviour.name}][{m_NetworkBehaviour.GetType().Name}][{GetType().Name}][Initialize] {nameof(NetworkManager)} has no {nameof(NetworkTimeSystem)} assigned!");
             }
+        }
+
+        /// <summary>
+        /// Invoked after the associated <see cref="NetworkBehaviour.OnNetworkPostSpawn"/> has been invoked.
+        /// </summary>
+        internal void InternalOnSpawned()
+        {
+            // If the NetworkVariableBase derived class is:
+            // - On the spawn authority side.
+            // - Dirty.
+            // - State updates can be sent:
+            // -- The instance has write permissions.
+            // -- The last sent time plus the max send time period is less than the current time.
+            // - User script has modified the list during spawn.
+            // When the NetworkObject is finished spawning (on the same frame), go ahead and reset
+            // the dirty related properties and last sent time to prevent duplicate updates from
+            // being sent (i.e. CreateObjectMessage will contain the changes so we don't need to
+            // send a proceeding NetworkVariableDeltaMessage).
+            if (m_NetworkObject.IsSpawnAuthority && IsDirty() && CanWrite() && CanSend())
+            {
+                UpdateLastSentTime();
+                ResetDirty();
+                SetDirty(false);
+            }
+        }
+
+        /// <summary>
+        /// Invoked after the associated <see cref="NetworkBehaviour.OnNetworkPreDespawn"/> has been invoked.
+        /// </summary>
+        internal void InternalOnPreDespawn()
+        {
+
         }
 
         /// <summary>

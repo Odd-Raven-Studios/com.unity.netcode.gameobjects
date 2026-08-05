@@ -595,9 +595,7 @@ namespace Unity.Netcode.Editor.CodeGen
         private const string k_NetworkManager_IsServer = nameof(NetworkManager.IsServer);
         private const string k_NetworkManager_IsClient = nameof(NetworkManager.IsClient);
         private const string k_NetworkManager_LogLevel = nameof(NetworkManager.LogLevel);
-
         private const string k_NetworkBehaviour_rpc_func_table = nameof(NetworkBehaviour.__rpc_func_table);
-        private const string k_NetworkBehaviour_rpc_name_table = nameof(NetworkBehaviour.__rpc_name_table);
         private const string k_NetworkBehaviour_rpc_exec_stage = nameof(NetworkBehaviour.__rpc_exec_stage);
         private const string k_NetworkBehaviour_NetworkVariableFields = nameof(NetworkBehaviour.NetworkVariableFields);
         private const string k_NetworkBehaviour_beginSendServerRpc = nameof(NetworkBehaviour.__beginSendServerRpc);
@@ -987,7 +985,47 @@ namespace Unity.Netcode.Editor.CodeGen
 
                         foreach (var method in type.Methods)
                         {
+                            // to reduce unnecessary type resolution, we first check if it can be a serialization extension without type resolution
+
                             if (!method.IsStatic)
+                            {
+                                continue;
+                            }
+
+                            if (method.Name is not (k_WriteValueMethodName or k_ReadValueMethodName))
+                            {
+                                continue;
+                            }
+
+                            var mayHaveExtensionAttr = false;
+
+                            foreach (var attr in method.CustomAttributes)
+                            {
+                                if (attr.Constructor.DeclaringType.FullName == extensionConstructor.DeclaringType.FullName)
+                                {
+                                    mayHaveExtensionAttr = true;
+                                    break;
+                                }
+                            }
+
+                            if (!mayHaveExtensionAttr)
+                            {
+                                continue;
+                            }
+
+                            var parameters = method.Parameters;
+
+                            if (parameters.Count != 2)
+                            {
+                                continue;
+                            }
+
+                            var firstParameterType = parameters[0].ParameterType;
+
+                            // ReadValueSafe() and WriteValueSafe() can use both by-ref and non-by-ref type for the first parameter type
+                            var firstParameterElementType = firstParameterType is ByReferenceType byRefType ? byRefType.ElementType : firstParameterType;
+
+                            if (firstParameterElementType.FullName != m_FastBufferWriter_TypeRef.FullName && firstParameterElementType.FullName != m_FastBufferReader_TypeRef.FullName)
                             {
                                 continue;
                             }
@@ -996,9 +1034,11 @@ namespace Unity.Netcode.Editor.CodeGen
 
                             foreach (var attr in method.CustomAttributes)
                             {
-                                if (attr.Constructor.Resolve() == extensionConstructor.Resolve())
+                                if (attr.Constructor.DeclaringType.FullName == extensionConstructor.DeclaringType.FullName &&
+                                    attr.Constructor.Resolve() == extensionConstructor.Resolve())
                                 {
                                     isExtension = true;
+                                    break;
                                 }
                             }
 
@@ -1007,13 +1047,11 @@ namespace Unity.Netcode.Editor.CodeGen
                                 continue;
                             }
 
-                            var parameters = method.Parameters;
-
-                            if (parameters.Count == 2 && parameters[0].ParameterType.Resolve() == m_FastBufferWriter_TypeRef.MakeByReferenceType().Resolve())
+                            if (method.Name == k_WriteValueMethodName && firstParameterType.Resolve() == m_FastBufferWriter_TypeRef.MakeByReferenceType().Resolve())
                             {
                                 m_FastBufferWriter_ExtensionMethodRefs.Add(m_MainModule.ImportReference(method));
                             }
-                            else if (parameters.Count == 2 && parameters[0].ParameterType.Resolve() == m_FastBufferReader_TypeRef.MakeByReferenceType().Resolve())
+                            else if (method.Name == k_ReadValueMethodName && firstParameterType.Resolve() == m_FastBufferReader_TypeRef.MakeByReferenceType().Resolve())
                             {
                                 m_FastBufferReader_ExtensionMethodRefs.Add(m_MainModule.ImportReference(method));
                             }
@@ -1863,27 +1901,24 @@ namespace Unity.Netcode.Editor.CodeGen
                 {
                     var parameters = method.Resolve().Parameters;
 
-                    if (method.Name == k_WriteValueMethodName)
+                    if (parameters[1].IsIn)
                     {
-                        if (parameters[1].IsIn)
+                        if (((ByReferenceType)parameters[1].ParameterType).ElementType.FullName == paramType.FullName &&
+                            ((ByReferenceType)parameters[1].ParameterType).ElementType.IsArray == paramType.IsArray)
                         {
-                            if (((ByReferenceType)parameters[1].ParameterType).ElementType.FullName == paramType.FullName &&
-                                ((ByReferenceType)parameters[1].ParameterType).ElementType.IsArray == paramType.IsArray)
-                            {
-                                methodRef = method;
-                                m_FastBufferWriter_WriteValue_MethodRefs[assemblyQualifiedName] = methodRef;
-                                return true;
-                            }
+                            methodRef = method;
+                            m_FastBufferWriter_WriteValue_MethodRefs[assemblyQualifiedName] = methodRef;
+                            return true;
                         }
-                        else
+                    }
+                    else
+                    {
+                        if (parameters[1].ParameterType.FullName == paramType.FullName &&
+                            parameters[1].ParameterType.IsArray == paramType.IsArray)
                         {
-                            if (parameters[1].ParameterType.FullName == paramType.FullName &&
-                                parameters[1].ParameterType.IsArray == paramType.IsArray)
-                            {
-                                methodRef = method;
-                                m_FastBufferWriter_WriteValue_MethodRefs[assemblyQualifiedName] = methodRef;
-                                return true;
-                            }
+                            methodRef = method;
+                            m_FastBufferWriter_WriteValue_MethodRefs[assemblyQualifiedName] = methodRef;
+                            return true;
                         }
                     }
                 }
@@ -2099,8 +2134,7 @@ namespace Unity.Netcode.Editor.CodeGen
                 foreach (var method in m_FastBufferReader_ExtensionMethodRefs)
                 {
                     var parameters = method.Resolve().Parameters;
-                    if (method.Name == k_ReadValueMethodName &&
-                        parameters[1].IsOut &&
+                    if (parameters[1].IsOut &&
                         ((ByReferenceType)parameters[1].ParameterType).ElementType.FullName == paramType.FullName &&
                         ((ByReferenceType)parameters[1].ParameterType).ElementType.IsArray == paramType.IsArray)
                     {
@@ -2116,9 +2150,10 @@ namespace Unity.Netcode.Editor.CodeGen
                 {
                     typeMethod = GetFastBufferReaderReadMethod(k_ReadValueInPlaceMethodName, paramType);
                 }
-                else
-#endif
+                else if (paramType.Resolve().FullName == "Unity.Collections.NativeArray`1")
+#else
                 if (paramType.Resolve().FullName == "Unity.Collections.NativeArray`1")
+#endif
                 {
                     typeMethod = GetFastBufferReaderReadMethod(k_ReadValueTempMethodName, paramType);
                 }

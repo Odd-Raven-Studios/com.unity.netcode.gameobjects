@@ -1,7 +1,7 @@
 // NetSim Implementation compilation boilerplate
 // All references to UNITY_MP_TOOLS_NETSIM_IMPLEMENTATION_ENABLED should be defined in the same way,
 // as any discrepancies are likely to result in build failures
-#if UNITY_EDITOR || (DEVELOPMENT_BUILD && !UNITY_MP_TOOLS_NETSIM_DISABLED_IN_DEVELOP) || (!DEVELOPMENT_BUILD && UNITY_MP_TOOLS_NETSIM_ENABLED_IN_RELEASE)
+#if UNITY_EDITOR || (DEBUG && !UNITY_MP_TOOLS_NETSIM_DISABLED_IN_DEVELOP) || (!DEBUG && UNITY_MP_TOOLS_NETSIM_ENABLED_IN_RELEASE)
 #define UNITY_MP_TOOLS_NETSIM_IMPLEMENTATION_ENABLED
 #endif
 
@@ -68,7 +68,7 @@ namespace Unity.Netcode.Transports.UTP
         // frame at 60 FPS. This will be a large over-estimation in any realistic scenario.
         private const int k_MaxReliableThroughput = (NetworkParameterConstants.MTU * 64 * 60) / 1000; // bytes per millisecond
 
-        private static ConnectionAddressData s_DefaultConnectionAddressData = new ConnectionAddressData { Address = "127.0.0.1", Port = 7777, ServerListenAddress = string.Empty };
+        private static readonly ConnectionAddressData k_DefaultConnectionAddressData = new ConnectionAddressData { Address = "127.0.0.1", Port = 7777, WebSocketPath = "/", ServerListenAddress = string.Empty };
 
 #pragma warning disable IDE1006 // Naming Styles
         /// <summary>
@@ -229,6 +229,13 @@ namespace Unity.Netcode.Transports.UTP
             public ushort Port;
 
             /// <summary>
+            /// Path of the URL when using WebSockets.
+            /// </summary>
+            [Tooltip("Path to connect to or listen on when using WebSockets. Defaults to \"/\" if not set.")]
+            [SerializeField]
+            public string WebSocketPath;
+
+            /// <summary>
             /// IP address the server will listen on. If not provided, will use localhost.
             /// </summary>
             [Tooltip("IP address the server will listen on. If not provided, will use localhost.")]
@@ -301,7 +308,7 @@ namespace Unity.Netcode.Transports.UTP
         /// This is where you can change IP Address, Port, or server's listen address.
         /// <see cref="ConnectionAddressData"/>
         /// </summary>
-        public ConnectionAddressData ConnectionData = s_DefaultConnectionAddressData;
+        public ConnectionAddressData ConnectionData = k_DefaultConnectionAddressData;
 
         /// <summary>
         /// Parameters for the Network Simulator
@@ -356,8 +363,25 @@ namespace Unity.Netcode.Transports.UTP
             public float PacketLoss;
         };
 
+#if UNITY_6000_2_OR_NEWER
+        internal static event Action<EntityId, NetworkDriver> OnDriverInitialized;
+        internal static event Action<EntityId> OnDisposingDriver;
+#endif
         internal static event Action<int, NetworkDriver> TransportInitialized;
         internal static event Action<int> TransportDisposed;
+#if UNITY_EDITOR
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticsOnLoad()
+        {
+            s_DriverConstructor = null;
+#if UNITY_6000_2_OR_NEWER
+            OnDriverInitialized = null;
+            OnDisposingDriver = null;
+#endif
+            TransportInitialized = null;
+            TransportDisposed = null;
+        }
+#endif
 
         /// <summary>
         /// Provides access to the <see cref="NetworkDriver"/> for this instance.
@@ -435,7 +459,9 @@ namespace Unity.Netcode.Transports.UTP
                 out m_UnreliableSequencedFragmentedPipeline,
                 out m_ReliableSequencedPipeline);
 #if UNITY_6000_2_OR_NEWER
-            TransportInitialized?.Invoke(GetEntityId(), m_Driver);
+            var entityId = GetEntityId();
+            OnDriverInitialized?.Invoke(entityId, m_Driver);
+            TransportInitialized?.Invoke(entityId.GetHashCode(), m_Driver);
 #else
             TransportInitialized?.Invoke(GetInstanceID(), m_Driver);
 #endif
@@ -456,7 +482,9 @@ namespace Unity.Netcode.Transports.UTP
             m_SendQueue.Clear();
 
 #if UNITY_6000_2_OR_NEWER
-            TransportDisposed?.Invoke(GetEntityId());
+            var entityId = GetEntityId();
+            OnDisposingDriver?.Invoke(entityId);
+            TransportDisposed?.Invoke(entityId.GetHashCode());
 #else
             TransportDisposed?.Invoke(GetInstanceID());
 #endif
@@ -503,6 +531,12 @@ namespace Unity.Netcode.Transports.UTP
                 {
                     settings.WithRelayParameters(ref m_RelayServerData, m_HeartbeatTimeoutMS);
                 }
+            }
+
+            // Set up the WebSocket path if configured and if using WebSockets.
+            if (m_UseWebSockets && m_ProtocolType != ProtocolType.RelayUnityTransport && !string.IsNullOrWhiteSpace(ConnectionData.WebSocketPath))
+            {
+                settings.WithWebSocketParameters(path: ConnectionData.WebSocketPath);
             }
 
 #if UNITY_MP_TOOLS_NETSIM_IMPLEMENTATION_ENABLED
@@ -634,6 +668,23 @@ namespace Unity.Netcode.Transports.UTP
             unreliableFragmentedPipelineStages = new(unreliableFragmented, Allocator.Temp);
             unreliableSequencedFragmentedPipelineStages = new(unreliableSequencedFragmented, Allocator.Temp);
             reliableSequencedPipelineStages = new(reliableSequenced, Allocator.Temp);
+        }
+
+        /// <inheritdoc cref="GetDefaultPipelineConfigurations(out NativeArray{NetworkPipelineStageId}, out NativeArray{NetworkPipelineStageId}, out NativeArray{NetworkPipelineStageId})"/>
+        /// <param name="driver">Driver for which the pipeline configurations are being retrieved.</param>
+        public void GetDefaultPipelineConfigurations(
+            ref NetworkDriver driver,
+            out NativeArray<NetworkPipelineStageId> unreliableFragmentedPipelineStages,
+            out NativeArray<NetworkPipelineStageId> unreliableSequencedFragmentedPipelineStages,
+            out NativeArray<NetworkPipelineStageId> reliableSequencedPipelineStages)
+        {
+#if MULTIPLAYER_TOOLS_1_0_0_PRE_7
+            driver.RegisterPipelineStage(new NetworkMetricsPipelineStage());
+#endif
+            GetDefaultPipelineConfigurations(
+                out unreliableFragmentedPipelineStages,
+                out unreliableSequencedFragmentedPipelineStages,
+                out reliableSequencedPipelineStages);
         }
 
         private NetworkPipeline SelectSendPipeline(NetworkDelivery delivery)
@@ -805,6 +856,40 @@ namespace Unity.Netcode.Transports.UTP
             SetRelayServerData(ipAddress, port, allocationId, key, connectionData, hostConnectionData, isSecure);
         }
 
+        // Command line options
+        private const string k_OverridePortArg = "-port";
+        private const string k_OverrideIpAddressArg = "-ip";
+
+        private bool ParseCommandLineOptionsPort(out ushort port)
+        {
+#if UNITY_SERVER && UNITY_DEDICATED_SERVER_ARGUMENTS_PRESENT
+            if (UnityEngine.DedicatedServer.Arguments.Port != null)
+            {
+                port = (ushort)UnityEngine.DedicatedServer.Arguments.Port;
+                return true;
+            }
+#else
+            if (CommandLineOptions.TryGetArg(k_OverridePortArg, out var argValue))
+            {
+                port = (ushort)Convert.ChangeType(argValue, typeof(ushort));
+                return true;
+            }
+#endif
+            port = default;
+            return false;
+        }
+
+        private bool ParseCommandLineOptionsAddress(out string ipValue)
+        {
+            if (CommandLineOptions.TryGetArg(k_OverrideIpAddressArg, out var argValue))
+            {
+                ipValue = argValue;
+                return true;
+            }
+            ipValue = default;
+            return false;
+        }
+
         /// <summary>
         /// Sets IP and Port information. This will be ignored if using the Unity Relay and you should call <see cref="SetRelayServerData"/>
         /// </summary>
@@ -813,6 +898,29 @@ namespace Unity.Netcode.Transports.UTP
         /// <param name="listenAddress">The address the server is going to listen on.</param>
         public void SetConnectionData(string ipv4Address, ushort port, string listenAddress = null)
         {
+            SetConnectionData(false, ipv4Address, port, listenAddress);
+        }
+
+        /// <summary>
+        /// Sets IP and Port information. This will be ignored if using the Unity Relay and you should call <see cref="SetRelayServerData"/>
+        /// </summary>
+        /// <param name="ipv4Address">The remote IP address (despite the name, can be an IPv6 address or a domain name).</param>
+        /// <param name="port">The remote port to connect to.</param>
+        /// <param name="listenAddress">The address the server is going to listen on.</param>
+        /// <param name="forceOverrideCommandLineArgs">When true, -port and -ip command line arguments will be ignored.</param>
+        public void SetConnectionData(bool forceOverrideCommandLineArgs, string ipv4Address, ushort port, string listenAddress = null)
+        {
+            m_HasForcedConnectionData = forceOverrideCommandLineArgs;
+            if (!forceOverrideCommandLineArgs && ParseCommandLineOptionsPort(out var commandLinePort))
+            {
+                port = commandLinePort;
+            }
+
+            if (!forceOverrideCommandLineArgs && ParseCommandLineOptionsAddress(out var commandLineIp))
+            {
+                ipv4Address = commandLineIp;
+            }
+
             ConnectionData = new ConnectionAddressData
             {
                 Address = ipv4Address,
@@ -1169,13 +1277,30 @@ namespace Unity.Netcode.Transports.UTP
                 return;
             }
 
-            //Don't need to dispose of the buffers, they are filled with data pointers.
-            m_Driver.GetPipelineBuffers(pipeline,
-                NetworkPipelineStageId.Get<NetworkMetricsPipelineStage>(),
-                networkConnection,
-                out _,
-                out _,
-                out var sharedBuffer);
+            var sharedBuffer = default(NativeArray<byte>);
+
+            try
+            {
+                // Don't need to dispose of the buffers, they are filled with data pointers.
+                m_Driver.GetPipelineBuffers(pipeline,
+                    NetworkPipelineStageId.Get<NetworkMetricsPipelineStage>(),
+                    networkConnection,
+                    out _,
+                    out _,
+                    out sharedBuffer);
+            }
+            catch (InvalidOperationException)
+            {
+                // Can happen if using a custom driver that isn't configured with the metrics stage.
+                return;
+            }
+
+            // That InvalidOperationException above is only thrown in the editor. In runtime builds
+            // we instead get default return values when the pipeline stage is invalid.
+            if (sharedBuffer == default)
+            {
+                return;
+            }
 
             unsafe
             {
@@ -1450,7 +1575,22 @@ namespace Unity.Netcode.Transports.UTP
                 // the only case where a full send queue causes a connection loss. Full unreliable
                 // send queues are dealt with by flushing it out to the network or simply dropping
                 // new messages if that fails.
-                var maxCapacity = m_MaxSendQueueSize > 0 ? m_MaxSendQueueSize : m_DisconnectTimeoutMS * k_MaxReliableThroughput;
+                var maxCapacity = m_MaxSendQueueSize;
+                if (maxCapacity <= 0)
+                {
+                    // Setting m_DisconnectTimeoutMS to zero will disable the timeout entirely
+                    // Set the capacity as if the disconnect timeout is the largest possible value
+                    if (m_DisconnectTimeoutMS == 0)
+                    {
+                        maxCapacity = BatchedSendQueue.MaximumMaximumCapacity;
+                    }
+                    else
+                    {
+                        // Avoids overflow when m_DisconnectTimeoutMS is set to a very high value
+                        var fullCalculation = Math.BigMul(m_DisconnectTimeoutMS, k_MaxReliableThroughput);
+                        maxCapacity = (int)Math.Min(fullCalculation, BatchedSendQueue.MaximumMaximumCapacity);
+                    }
+                }
 
                 queue = new BatchedSendQueue(Math.Max(maxCapacity, m_MaxPayloadSize));
                 m_SendQueue.Add(sendTarget, queue);
@@ -1567,6 +1707,11 @@ namespace Unity.Netcode.Transports.UTP
         }
 
         /// <summary>
+        /// This is set in <see cref="SetConnectionData(string, ushort, string, bool)"/>
+        /// </summary>
+        private bool m_HasForcedConnectionData;
+
+        /// <summary>
         /// Initializes the transport
         /// </summary>
         /// <param name="networkManager">The NetworkManager that initialized and owns the transport</param>
@@ -1579,12 +1724,23 @@ namespace Unity.Netcode.Transports.UTP
                 return;
             }
 #endif
-
             m_NetworkManager = networkManager;
 
-            if (m_NetworkManager && m_NetworkManager.PortOverride.Overidden)
+            //If the port doesn't have a forced value and is set by a command line option, override it.
+            if (!m_HasForcedConnectionData && ParseCommandLineOptionsAddress(out var portAsString))
             {
-                ConnectionData.Port = m_NetworkManager.PortOverride.Value;
+                if (m_NetworkManager?.LogLevel <= LogLevel.Developer)
+                {
+                    Debug.Log($"The port is set by a command line option. Using following connection data: {ConnectionData.Address}:{portAsString}");
+                }
+                if (ushort.TryParse(portAsString, out ushort port))
+                {
+                    ConnectionData.Port = port;
+                }
+                else
+                {
+                    Debug.LogError($"The port ({portAsString}) is not a valid unsigned short value!");
+                }
             }
 
             m_RealTimeProvider = m_NetworkManager ? m_NetworkManager.RealTimeProvider : new RealTimeProvider();
@@ -1734,11 +1890,8 @@ namespace Unity.Netcode.Transports.UTP
 #endif
             }
 
-#if MULTIPLAYER_TOOLS_1_0_0_PRE_7
-            driver.RegisterPipelineStage(new NetworkMetricsPipelineStage());
-#endif
-
             GetDefaultPipelineConfigurations(
+                ref driver,
                 out var unreliableFragmentedPipelineStages,
                 out var unreliableSequencedFragmentedPipelineStages,
                 out var reliableSequencedPipelineStages);

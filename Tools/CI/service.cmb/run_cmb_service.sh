@@ -17,7 +17,7 @@
   # Example usage:
     # ./<path-to-script>/run_cmb_service.sh -e 7788 -s 7799
 
-  # This script is currently used in the desktop-standalone-tests yamato job.
+  # This script is currently used in the cmb-service-standalone-tests yamato job (found at ../../../.yamato/cmb-service-standalone-tests.yml).
 
 # TECHNICAL CONSIDERATIONS---------------------------------------------------------------
   # This is a bash script and so needs to be run on a Unix based system.
@@ -38,10 +38,11 @@ ERROR="Error: Expected ports to be defined! Example script usage:"
 EXAMPLE="run_cmb_service.sh -e <echo-server-port> -s <cmb-service-port>"
 
 # get arguments passed to the script
-while getopts 'e:s:' flag; do
+while getopts 'e:s:l:' flag; do
 case "${flag}" in
   e) echo_port="${OPTARG}" ;;
   s) service_port="${OPTARG}" ;;
+  l) build_logs="${OPTARG}" ;;
   *) printf "%s\n" "$ERROR" "$EXAMPLE"
       exit 1 ;;
   esac
@@ -89,6 +90,21 @@ logError(){
     printf "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
 }
 
+# Unity Version -----------------------------------------------------------------
+
+# This is the path to the logs from the standalone build job
+FILE="$build_logs/TestResults.js"
+
+unity_version=$(sed -n 's/.*"editorVersion": *"\([^" (]*\).*/\1/p' $FILE)
+
+# ensure arguments were passed and the ports are defined
+if [ -z "$unity_version" ]; then
+  logMessage "Failed to find unity version! Exiting...";
+  exit 1;
+else
+  logMessage "Found Unity version: $unity_version";
+fi
+
 # Protocol Buffer Compiler ------------------------------------------------------
 
 # Apply any updates
@@ -120,11 +136,14 @@ else
 logMessage "Protocol Buffer Compiler Installed & ENV variables verified!\n PROTOC path is: $PROTOC"
 fi
 
-# clone the cmb service repo
-git clone https://github.com/Unity-Technologies/mps-common-multiplayer-backend.git
+# Sparse-checkout only the CMB service directory from the unity-player-services monorepo.
+# --filter=blob:none + --depth 1 avoids downloading file contents and history for the rest of the monorepo.
+git clone --depth 1 --filter=blob:none --sparse https://github.com/Unity-Technologies/unity-player-services.git
+cd ./unity-player-services
+git sparse-checkout set services/common-multiplayer-backend/runtime
 
 # navigate to the cmb service directory
-cd ./mps-common-multiplayer-backend/runtime
+cd ./services/common-multiplayer-backend/runtime
 
 # Install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -140,7 +159,7 @@ cargo build --example ngo_echo_server
 
 # Run the echo server in the background
 logMessage "Running echo server tests..."
-cargo run --example ngo_echo_server -- --port $echo_port &
+cargo run --example ngo_echo_server -- --port $echo_port --unity-version $unity_version &
 
 # CMB Service -------------------------------------------------------------------
 
@@ -152,6 +171,8 @@ cargo build --release --locked
 # The infinite loop is required as the service will exit each time all connected clients disconnect.
 # This means the service will exit after each test. The infinite loop will immediately restart the service each time it exits.
 logMessage "Running service integration tests..."
+echo "comb-server -l error --metrics-port 5000 standalone --port $service_port -t 60m --unity-version $unity_version"
+
 while :; do
-  ./target/release/comb-server -l error --metrics-port 5000 standalone --port $service_port -t 60m;
+  ./target/release/comb-server -l error --metrics-port 5000 standalone --port $service_port -t 60m --unity-version $unity_version;
 done & # <- use & to run the entire loop in the background

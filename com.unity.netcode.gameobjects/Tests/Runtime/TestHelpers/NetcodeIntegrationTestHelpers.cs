@@ -201,6 +201,8 @@ namespace Unity.Netcode.TestHelpers.Runtime
 #endif
         }
 
+        internal static readonly string IgnoredForCmbServiceReason = "[CMB-Service Test Run] Skipping non-distributed authority test.";
+
         /// <summary>
         /// Use for non <see cref="NetcodeIntegrationTest"/> derived integration tests to automatically ignore the
         /// test if running against a CMB server.
@@ -209,7 +211,7 @@ namespace Unity.Netcode.TestHelpers.Runtime
         {
             if (bool.TryParse(GetCMBServiceEnvironentVariable(), out bool isTrue) ? isTrue : false)
             {
-                Assert.Ignore("[CMB-Server Test Run] Skipping non-distributed authority test.");
+                Assert.Ignore(IgnoredForCmbServiceReason);
             }
         }
 
@@ -569,17 +571,26 @@ namespace Unity.Netcode.TestHelpers.Runtime
             }
 
             s_IsStarted = true;
+            return StartInternal(host, server, clients, callback, startServer);
+        }
+
+        internal static bool StartServer(bool host, NetworkManager server)
+        {
+            return StartInternal(host, server, new NetworkManager[] { });
+        }
+
+
+        private static bool StartInternal(bool host, NetworkManager server, NetworkManager[] clients, BeforeClientStartCallback callback = null, bool startServer = true)
+        {
             s_ClientCount = clients.Length;
             var hooks = (MultiInstanceHooks)null;
             if (startServer)
             {
-                if (host)
+                var isListening = host ? server.StartHost() : server.StartServer();
+
+                if (!isListening)
                 {
-                    server.StartHost();
-                }
-                else
-                {
-                    server.StartServer();
+                    return false;
                 }
 
                 hooks = new MultiInstanceHooks();
@@ -678,9 +689,6 @@ namespace Unity.Netcode.TestHelpers.Runtime
             {
                 networkObject.GlobalObjectIdHash = ++s_AutoIncrementGlobalObjectIdHashCounter;
             }
-
-            // Prevent object from being snapped up as a scene object
-            networkObject.IsSceneObject = false;
 
             // To avoid issues with integration tests that forget to clean up,
             // this feature only works with NetcodeIntegrationTest derived classes

@@ -55,7 +55,7 @@ namespace Unity.Netcode.RuntimeTests
             attachableNetworkObject.SetOwnershipStatus(NetworkObject.OwnershipStatus.Transferable);
 
             // The target prefab that the source prefab will attach
-            // will be parented under the target prefab.
+            // to will be parented under the target prefab.
             m_TargetNodePrefabA = CreateNetworkObjectPrefab("TargetA");
             m_TargetNodePrefabB = CreateNetworkObjectPrefab("TargetB");
             var sourceChild = new GameObject("SourceChild");
@@ -118,7 +118,7 @@ namespace Unity.Netcode.RuntimeTests
                 else
                 {
                     var attachable = networkManager.SpawnManager.SpawnedObjects[currentAttachableRoot.NetworkObjectId].GetComponentInChildren<TestAttachable>();
-                    attachable.ResetStates();
+                    attachable?.ResetStates();
                 }
 
                 // Target
@@ -129,7 +129,7 @@ namespace Unity.Netcode.RuntimeTests
                 else
                 {
                     var node = networkManager.SpawnManager.SpawnedObjects[m_TargetInstance.NetworkObjectId].GetComponentInChildren<TestNode>();
-                    node.ResetStates();
+                    node?.ResetStates();
                 }
 
                 // Target B
@@ -140,7 +140,7 @@ namespace Unity.Netcode.RuntimeTests
                 else
                 {
                     var node = networkManager.SpawnManager.SpawnedObjects[m_TargetInstanceB.NetworkObjectId].GetComponentInChildren<TestNode>();
-                    node.ResetStates();
+                    node?.ResetStates();
                 }
             }
             return m_ErrorLog.Length == 0;
@@ -653,9 +653,11 @@ namespace Unity.Netcode.RuntimeTests
                     attachable.AutoDetach = AttachableBehaviour.AutoDetachTypes.OnAttachNodeDestroy;
                 }
                 var attachableNodeName = m_AttachableNodeInstance.name;
+                var attachableBehaviourName = m_AttachableBehaviourInstance.name;
+
                 Object.Destroy(m_TargetInstance.gameObject);
                 yield return WaitForConditionOrTimeOut(AllInstancesDetached);
-                AssertOnTimeout($"[OnAttachNodeDestroy] Timed out waiting for all clients to detach {m_AttachableBehaviourInstance.name} from {attachableNodeName}!\n {m_ErrorLog}");
+                AssertOnTimeout($"[OnAttachNodeDestroy] Timed out waiting for all clients to detach {attachableBehaviourName} from {attachableNodeName}!\n {m_ErrorLog}");
             }
         }
 
@@ -676,10 +678,13 @@ namespace Unity.Netcode.RuntimeTests
             public GameObject DefaultParent => m_DefaultParent;
             public AttachState State => m_AttachState;
 
+            public bool DestroyWithScene;
+
             public override void OnNetworkSpawn()
             {
                 AttachStateChange += OnAttachStateChangeEvent;
                 name = $"{name}-{NetworkManager.LocalClientId}";
+                NetworkObject.DestroyWithScene = DestroyWithScene;
                 base.OnNetworkSpawn();
             }
 
@@ -780,8 +785,15 @@ namespace Unity.Netcode.RuntimeTests
         /// </summary>
         internal class TestNode : AttachableNode
         {
+            public bool DestroyWithScene;
             public bool OnAttachedInvoked { get; private set; }
             public bool OnDetachedInvoked { get; private set; }
+
+            public override void OnNetworkSpawn()
+            {
+                NetworkObject.DestroyWithScene = DestroyWithScene;
+                base.OnNetworkSpawn();
+            }
 
             public bool IsAttached(AttachableBehaviour attachableBehaviour)
             {

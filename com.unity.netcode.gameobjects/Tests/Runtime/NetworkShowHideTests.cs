@@ -31,6 +31,8 @@ namespace Unity.Netcode.RuntimeTests
 
         public override void OnNetworkSpawn()
         {
+            MyNetworkVariable.OnValueChanged += Changed;
+            MyOwnerReadNetworkVariable.OnValueChanged += OwnerReadChanged;
             if (NetworkManager.LocalClientId == ClientIdToTarget)
             {
                 ClientTargetedNetworkObjects.Add(this);
@@ -42,7 +44,7 @@ namespace Unity.Netcode.RuntimeTests
             }
             else
             {
-                Debug.Assert(MyListSetOnSpawn.Count == 1);
+                Debug.Assert(MyListSetOnSpawn.Count == 1, $"[Session Authority][Client-{NetworkManager.LocalClientId}][{name}] Count = {MyListSetOnSpawn.Count} when expecting only 1!");
                 Debug.Assert(MyListSetOnSpawn[0] == 45);
             }
 
@@ -53,6 +55,8 @@ namespace Unity.Netcode.RuntimeTests
 
         public override void OnNetworkDespawn()
         {
+            MyNetworkVariable.OnValueChanged -= Changed;
+            MyOwnerReadNetworkVariable.OnValueChanged -= OwnerReadChanged;
             if (ClientTargetedNetworkObjects.Contains(this))
             {
                 ClientTargetedNetworkObjects.Remove(this);
@@ -60,26 +64,13 @@ namespace Unity.Netcode.RuntimeTests
             base.OnNetworkDespawn();
         }
 
-        public NetworkVariable<int> MyNetworkVariable;
-        public NetworkList<int> MyListSetOnSpawn;
-        public NetworkVariable<int> MyOwnerReadNetworkVariable;
-        public NetworkList<int> MyList;
+        public NetworkVariable<int> MyNetworkVariable = new NetworkVariable<int>();
+        internal NetworkList<int> MyListSetOnSpawn = new NetworkList<int>();
+        public NetworkVariable<int> MyOwnerReadNetworkVariable = new NetworkVariable<int>(readPerm: NetworkVariableReadPermission.Owner);
+        internal NetworkList<int> MyList = new NetworkList<int>();
         public static NetworkManager NetworkManagerOfInterest;
 
         internal static int GainOwnershipCount = 0;
-
-        private void Awake()
-        {
-            // Debug.Log($"Awake {NetworkManager.LocalClientId}");
-            MyNetworkVariable = new NetworkVariable<int>();
-            MyNetworkVariable.OnValueChanged += Changed;
-
-            MyListSetOnSpawn = new NetworkList<int>();
-            MyList = new NetworkList<int>();
-
-            MyOwnerReadNetworkVariable = new NetworkVariable<int>(readPerm: NetworkVariableReadPermission.Owner);
-            MyOwnerReadNetworkVariable.OnValueChanged += OwnerReadChanged;
-        }
 
         public override void OnGainedOwnership()
         {
@@ -497,8 +488,7 @@ namespace Unity.Netcode.RuntimeTests
                         m_ErrorLog.AppendLine($"{m_NetSpawnedObject1.name} is still visible to Client-{m_ClientWithoutVisibility}!");
                     }
                 }
-                else
-                if (client.SpawnManager.SpawnedObjects[m_NetSpawnedObject1.NetworkObjectId].IsNetworkVisibleTo(m_ClientWithoutVisibility))
+                else if (client.SpawnManager.SpawnedObjects[m_NetSpawnedObject1.NetworkObjectId].IsNetworkVisibleTo(m_ClientWithoutVisibility))
                 {
                     m_ErrorLog.AppendLine($"Local instance of {m_NetSpawnedObject1.name} on Client-{client.LocalClientId} thinks Client-{m_ClientWithoutVisibility} still has visibility!");
                 }
@@ -532,6 +522,7 @@ namespace Unity.Netcode.RuntimeTests
             AssertOnTimeout($"NetworkObject is still visible to Client-{m_ClientWithoutVisibility} or other clients think it is still visible to Client-{m_ClientWithoutVisibility}:\n {m_ErrorLog}");
 
             yield return WaitForConditionOrTimeOut(() => ShowHideObject.ClientTargetedNetworkObjects.Count == 0);
+            AssertOnTimeout($"Timed out waiting for ShowHideObject.ClientTargetedNetworkObjects to have a count of 0 but was {ShowHideObject.ClientTargetedNetworkObjects.Count}!");
 
             foreach (var client in m_ClientNetworkManagers)
             {
@@ -564,8 +555,31 @@ namespace Unity.Netcode.RuntimeTests
             }
 
             yield return WaitForConditionOrTimeOut(() => ShowHideObject.ClientTargetedNetworkObjects.Count == 1);
+            AssertOnTimeout($"Timed out waiting for ShowHideObject.ClientTargetedNetworkObjects to have a count of 1 but was {ShowHideObject.ClientTargetedNetworkObjects.Count}!");
 
-            Assert.True(ShowHideObject.ClientTargetedNetworkObjects[0].OwnerClientId == firstClient.LocalClientId);
+            m_ClientIdToCheck = firstClient.LocalClientId;
+            yield return WaitForConditionOrTimeOut(CheckIsClientOwner);
+            AssertOnTimeout($"Timed out waiting for client owner check!");
+        }
+
+        private ulong m_ClientIdToCheck;
+        private bool CheckIsClientOwner(StringBuilder errorLog)
+        {
+            if (ShowHideObject.ClientTargetedNetworkObjects[0].OwnerClientId != m_ClientIdToCheck)
+            {
+                errorLog.AppendLine($"[CheckIsClientOwner][Index: 0][{ShowHideObject.ClientTargetedNetworkObjects[0].name}] OwnerClientId is {ShowHideObject.ClientTargetedNetworkObjects[0].OwnerClientId} when it was expected to be {m_ClientIdToCheck}!");
+                if (ShowHideObject.ClientTargetedNetworkObjects.Count > 1)
+                {
+                    for (int i = 1; i < ShowHideObject.ClientTargetedNetworkObjects.Count; i++)
+                    {
+                        var target = ShowHideObject.ClientTargetedNetworkObjects[i];
+                        errorLog.AppendLine($"[CheckIsClientOwner][Index: {i}][{target.name}] OwnerClientId is {target.OwnerClientId}.");
+                    }
+                }
+                return false;
+            }
+
+            return true;
         }
 
         private bool AllClientsSpawnedObject1()
@@ -876,6 +890,33 @@ namespace Unity.Netcode.RuntimeTests
             yield return WaitForConditionOrTimeOut(OwnershipHasChanged);
             AssertOnTimeout($"Timed out waiting for clients-{m_NewOwner.LocalClientId} to gain ownership of object {m_OwnershipNetworkObject.NetworkObjectId}!");
             VerboseDebug($"Client {m_NewOwner.LocalClientId} now owns object {m_OwnershipNetworkObject.NetworkObjectId}!");
+        }
+
+        [UnityTest]
+        public IEnumerator DuplicateHideShowTest()
+        {
+            var authority = GetAuthorityNetworkManager();
+            var nonAuthority = GetNonAuthorityNetworkManager();
+            m_ClientId0 = nonAuthority.LocalClientId;
+            ShowHideObject.ClientTargetedNetworkObjects.Clear();
+            ShowHideObject.ClientIdToTarget = m_ClientId0;
+            ShowHideObject.Silent = true;
+
+            var spawnedObject1 = SpawnObject(m_PrefabToSpawn, authority);
+            m_NetSpawnedObject1 = spawnedObject1.GetComponent<NetworkObject>();
+
+            m_NetSpawnedObject1.GetComponent<ShowHideObject>().MyNetworkVariable.Value++;
+            m_NetSpawnedObject1.NetworkHide(m_ClientId0);
+            m_NetSpawnedObject1.NetworkHide(m_ClientId0);
+
+            yield return WaitForConditionOrTimeOut(() => !nonAuthority.SpawnManager.SpawnedObjects.ContainsKey(m_NetSpawnedObject1.NetworkObjectId));
+            AssertOnTimeout($"NetworkObject {m_NetSpawnedObject1.name} is still spawned on client-{nonAuthority.LocalClientId} after timeout!");
+
+            m_NetSpawnedObject1.NetworkShow(m_ClientId0);
+            m_NetSpawnedObject1.NetworkShow(m_ClientId0);
+
+            yield return WaitForConditionOrTimeOut(() => nonAuthority.SpawnManager.SpawnedObjects.ContainsKey(m_NetSpawnedObject1.NetworkObjectId));
+            AssertOnTimeout($"NetworkObject {m_NetSpawnedObject1.name} is not yet spawned on client-{nonAuthority.LocalClientId} after timeout!");
         }
     }
 }

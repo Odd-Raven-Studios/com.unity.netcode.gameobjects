@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using Unity.Netcode.TestHelpers.Runtime;
 using UnityEngine;
 using UnityEngine.TestTools;
+using static Unity.Netcode.Components.NetworkAnimator;
 
 
 namespace TestProject.RuntimeTests
@@ -157,6 +159,39 @@ namespace TestProject.RuntimeTests
             return true;
         }
 
+        private bool ExcludedParameterValuesDoNotMatch()
+        {
+            var objectToUpdate = AnimatorTestHelper.ServerSideInstance;
+            var excludedParameterValue = objectToUpdate.GetExcludedParameter();
+            if (m_AuthoritativeMode == AuthoritativeMode.OwnerAuth)
+            {
+                objectToUpdate = m_OwnerShipMode == OwnerShipMode.ClientOwner ? AnimatorTestHelper.ClientSideInstances[m_ClientNetworkManagers[0].LocalClientId] : AnimatorTestHelper.ServerSideInstance;
+                excludedParameterValue = objectToUpdate.GetExcludedParameter();
+                if (m_OwnerShipMode == OwnerShipMode.ClientOwner)
+                {
+                    if (excludedParameterValue == AnimatorTestHelper.ServerSideInstance.GetExcludedParameter())
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            foreach (var animatorTestHelper in AnimatorTestHelper.ClientSideInstances)
+            {
+                if (objectToUpdate == animatorTestHelper.Value)
+                {
+                    continue;
+                }
+                var clientExcludedParameter = animatorTestHelper.Value.GetExcludedParameter();
+                if (clientExcludedParameter == excludedParameterValue)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+
         public enum OwnerShipMode
         {
             ServerOwner,
@@ -268,6 +303,78 @@ namespace TestProject.RuntimeTests
             VerboseDebug($" ------------------ Parameter Test [{m_OwnerShipMode}] Stopping ------------------ ");
         }
 
+        [Test]
+        public void ParameterExcludedTests()
+        {
+            VerboseDebug($" ++++++++++++++++++ Parameter Excluded Test [{m_OwnerShipMode}] Starting ++++++++++++++++++ ");
+
+            // Spawn our test animator object
+            var objectInstance = SpawnPrefab(m_OwnerShipMode == OwnerShipMode.ClientOwner, m_AuthoritativeMode);
+
+            // Wait for it to spawn server-side
+            var success = WaitForConditionOrTimeOutWithTimeTravel(() => AnimatorTestHelper.ServerSideInstance != null);
+            Assert.True(success, $"Timed out waiting for the server-side instance of {GetNetworkAnimatorName(m_AuthoritativeMode)} to be spawned!");
+
+            // Wait for it to spawn client-side
+            success = WaitForConditionOrTimeOutWithTimeTravel(() => AnimatorTestHelper.ClientSideInstances.ContainsKey(m_ClientNetworkManagers[0].LocalClientId));
+            Assert.True(success, $"Timed out waiting for the client-side instance of {GetNetworkAnimatorName(m_AuthoritativeMode)} to be spawned!");
+
+            if (m_AuthoritativeMode == AuthoritativeMode.OwnerAuth)
+            {
+                var objectToUpdate = m_OwnerShipMode == OwnerShipMode.ClientOwner ? AnimatorTestHelper.ClientSideInstances[m_ClientNetworkManagers[0].LocalClientId] : AnimatorTestHelper.ServerSideInstance;
+                // Set the excluded parameter value via the owner instance
+                objectToUpdate.UpdateExcludedParameter(Random.Range(1.5f, 100.0f));
+            }
+            else
+            {
+                // Set the excluded parameter value via the server instance
+                AnimatorTestHelper.ServerSideInstance.UpdateExcludedParameter(Random.Range(1.5f, 100.0f));
+            }
+
+            TimeTravel(0.5, 60);
+            // Wait for the client side to update to the new parameter values
+            success = WaitForConditionOrTimeOutWithTimeTravel(ExcludedParameterValuesDoNotMatch);
+            Assert.True(success, $"The excluded parameter was synchronized!");
+            VerboseDebug($" ------------------ Parameter Test [{m_OwnerShipMode}] Stopping ------------------ ");
+        }
+
+        private unsafe void MockWritingParameters(ref FastBufferWriter writer)
+        {
+            writer.Seek(0);
+            writer.Truncate();
+
+            // Write out how many parameter entries to read
+            BytePacker.WriteValuePacked(writer, (uint)1);
+            // Write an invalid index level (anything would be invalid with no parameters)
+            BytePacker.WriteValuePacked(writer, (uint)1000);
+            // Write some value for the invalid parameter
+            BytePacker.WriteValuePacked(writer, (uint)10);
+        }
+
+        [Test]
+        public void ParameterBoundsCheck()
+        {
+            var gameObject = new GameObject();
+            gameObject.AddComponent<NetworkObject>();
+            gameObject.AddComponent<Animator>();
+            var networkAnimator = gameObject.AddComponent<NetworkAnimator>();
+
+            var writer = new FastBufferWriter(40, Unity.Collections.Allocator.TempJob);
+
+            // Mock a parameter update with an invalid index
+            MockWritingParameters(ref writer);
+
+            var invalidParameters = new ParametersUpdateMessage()
+            {
+                Parameters = writer.ToArray()
+            };
+            // Expect an error message
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex($"parameters. Ignoring the remainger of this {nameof(ParametersUpdateMessage)}!"));
+            // Pass in the invalid ParametersUpdateMessage
+            networkAnimator.UpdateParameters(ref invalidParameters);
+
+            Object.DestroyImmediate(gameObject);
+        }
 
         private bool AllTriggersDetected(OwnerShipMode ownerShipMode)
         {
@@ -458,8 +565,7 @@ namespace TestProject.RuntimeTests
                         return false;
                     }
                 }
-                else
-                if (animatorTestHelper.Value.GetLayerWeight(layer) != targetWeight)
+                else if (animatorTestHelper.Value.GetLayerWeight(layer) != targetWeight)
                 {
                     return false;
                 }
@@ -975,27 +1081,18 @@ namespace TestProject.RuntimeTests
 
             TimeTravelToNextTick();
 
-            WaitForConditionOrTimeOutWithTimeTravel(() => !m_ServerNetworkManager.ShutdownInProgress);
+            WaitForConditionOrTimeOutWithTimeTravel(() => !m_ServerNetworkManager.ShutdownInProgress && m_ServerNetworkManager.IsConnectedClient);
 
             Assert.IsTrue(m_ServerTestHelperDespawned, $"Server-Side {nameof(AnimatorTestHelper)} did not have a valid IsServer setting!");
             AssertOnTimeout($"Timed out waiting for the server to shutdown!");
 
             VerboseDebug($" ++++++++++++++++++ Disconnect-Reconnect Restarting Server and Client ++++++++++++++++++ ");
-            // Since the dynamically generated PlayerPrefab is destroyed when the server shuts down,
-            // we need to create a new one and assign it to NetworkPrefab index 0
-            m_PlayerPrefab = new GameObject("Player");
-            NetworkObject networkObject = m_PlayerPrefab.AddComponent<NetworkObject>();
-            NetcodeIntegrationTestHelpers.MakeNetworkObjectTestPrefab(networkObject);
-            m_ServerNetworkManager.NetworkConfig.Prefabs.Prefabs[playerPrefabIndex].Prefab = m_PlayerPrefab;
-            m_ServerNetworkManager.NetworkConfig.PlayerPrefab = m_PlayerPrefab;
 
             // Now, restart the server and the client
             m_ServerNetworkManager.StartHost();
 
             foreach (var clientNetworkManager in m_ClientNetworkManagers)
             {
-                clientNetworkManager.NetworkConfig.Prefabs.Prefabs[playerPrefabIndex].Prefab = m_PlayerPrefab;
-                clientNetworkManager.NetworkConfig.PlayerPrefab = m_PlayerPrefab;
                 clientNetworkManager.StartClient();
             }
 

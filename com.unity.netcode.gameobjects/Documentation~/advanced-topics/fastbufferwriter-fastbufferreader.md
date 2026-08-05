@@ -1,5 +1,8 @@
 # FastBufferWriter and FastBufferReader
 
+> [!NOTE]
+> Read the [Serialization overview](./serialization/serialization-overview.md) page to understand the basics of serialization before learning about `FastBufferWriter` and `FastBufferReader`.
+
 The serialization and deserialization is done via `FastBufferWriter` and `FastBufferReader`. These have methods for serializing individual types and methods for serializing packed numbers, but in particular provide a high-performance method called `WriteValue()/ReadValue()` (for Writers and Readers, respectively) that can extremely quickly write an entire unmanaged struct to a buffer.
 
 There's a trade-off of CPU usage vs bandwidth in using this: Writing individual fields is slower (especially when it includes operations on unaligned memory), but allows the buffer to be filled more efficiently, both because it avoids padding for alignment in structs, and because it allows you to use `BytePacker.WriteValuePacked()`/`ByteUnpacker.ReadValuePacked()` and `BytePacker.WriteValueBitPacked()`/`ByteUnpacker.ReadValueBitPacked()`. The difference between these two is that the BitPacked variants pack more efficiently, but they reduce the valid range of values. See the section below for details on packing.
@@ -79,7 +82,7 @@ This allows the four bytes of the embedded struct to be rapidly serialized as a 
 
 `FastBufferWriter` and `FastBufferReader` are replacements for the old `NetworkWriter` and `NetworkReader`. For those familiar with the old classes, there are some key differences:
 
-- `FastBufferWriter` uses `WriteValue()` as the name of the method for all types *except* [`INetworkSerializable`](serialization/inetworkserializable) types, which are serialized through `WriteNetworkSerializable()`
+- `FastBufferWriter` uses `WriteValue()` as the name of the method for all types *except* [`INetworkSerializable`](serialization/inetworkserializable.md) types, which are serialized through `WriteNetworkSerializable()`
 - `FastBufferReader` similarly uses `ReadValue()` for all types except INetworkSerializable (which is read through `ReadNetworkSerializable`), with the output changed from a return value to an `out` parameter to allow for method overload resolution to pick the correct value.
 - `FastBufferWriter` and `FastBufferReader` outsource packed writes and reads to `BytePacker` and `ByteUnpacker`, respectively.
 - `FastBufferWriter` and `FastBufferReader` are **structs**, not **classes**. This means they can be constructed and destructed without GC allocations.
@@ -156,3 +159,7 @@ Packing values is done using the utility classes `BytePacker` and `ByteUnpacker`
   | uint   | 30 bits (0 to 1,073,741,824)                                 |
   | long   | 60 bits + sign bit (-1,152,921,504,606,846,976 to 1,152,921,504,606,846,975) |
   | ulong  | 61 bits (0 to 2,305,843,009,213,693,952)                     |
+
+## Serializing custom types
+
+`FastBufferReader` and `FastBufferWriter` can be extended via extension methods to handle serializing custom types. Refer to [customizing `FastBufferReader` and `FastBufferWriter`](./custom-serialization.md#fastbufferreader-and-fastbufferwriter) for instructions on how to do this.

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Netcode.TestHelpers.Runtime;
 using UnityEngine;
@@ -11,7 +12,7 @@ namespace Unity.Netcode.RuntimeTests
     /// <summary>
     /// Tests calling destroy on spawned / unspawned <see cref="NetworkObject"/>s. Expected behavior:
     /// - Server or client destroy on unspawned => Object gets destroyed, no exceptions
-    /// - Server destroy spawned => Object gets destroyed and despawned/destroyed on all clients. Server does not run <see cref="NetworkPrefaInstanceHandler.HandleNetworkPrefabDestroy"/>. Client runs it.
+    /// - Server destroy spawned => Object gets destroyed and despawned/destroyed on all clients. Server does not run <see cref="NetworkPrefabInstanceHandler.HandleNetworkPrefabDestroy"/>. Client runs it.
     /// - Client destroy spawned => throw exception.
     /// </summary>
 
@@ -152,7 +153,7 @@ namespace Unity.Netcode.RuntimeTests
                 // The non-authority client is =NOT= allowed to destroy any spawned object it does not
                 // have authority over during runtime.
                 LogAssert.ignoreFailingMessages = true;
-                NetworkLog.NetworkManagerOverride = nonAuthorityClient;
+                NetworkLog.ConfigureIntegrationTestLogging(nonAuthorityClient);
                 Object.Destroy(clientPlayerClone.gameObject);
             }
 
@@ -193,18 +194,12 @@ namespace Unity.Netcode.RuntimeTests
                     return false;
                 }
 
-                if (!NetcodeLogAssert.HasLogBeenReceived(LogType.Error, $"[Netcode-Server Sender={m_ClientNetworkManagers[0].LocalClientId}] [Invalid Destroy][{m_ClientPlayerName}][NetworkObjectId:{m_ClientNetworkObjectId}] Destroy a spawned {nameof(NetworkObject)} on a non-host client is not valid. Call Destroy or Despawn on the server/host instead."))
+                if (!NetcodeLogAssert.HasLogBeenReceived(LogType.Error, new Regex($"SenderId:{m_ClientNetworkManagers[0].LocalClientId}]")))
                 {
                     return false;
                 }
             }
             return true;
-        }
-
-        protected override IEnumerator OnTearDown()
-        {
-            NetworkLog.NetworkManagerOverride = null;
-            return base.OnTearDown();
         }
 
         protected override void OnOneTimeTearDown()

@@ -10,6 +10,7 @@ namespace Unity.Netcode
     /// as last received from the server plus an offset based on the current RTT - in other words, it is a best-guess
     /// effort at predicting what the server tick will be when a given network action is processed on the server.
     /// </summary>
+    [Serializable]
     public class NetworkTimeSystem
     {
         /// <remarks>
@@ -33,7 +34,7 @@ namespace Unity.Netcode
         /// </summary>
         private const double k_DefaultAdjustmentRatio = 0.01d;
 
-#if DEVELOPMENT_BUILD || UNITY_EDITOR
+#if DEBUG
         private static ProfilerMarker s_SyncTime = new ProfilerMarker($"{nameof(NetworkManager)}.SyncTime");
 #endif
         private double m_PreviousTimeSec;
@@ -181,7 +182,7 @@ namespace Unity.Netcode
         /// </remarks>
         private void OnTickSyncTime()
         {
-#if DEVELOPMENT_BUILD || UNITY_EDITOR
+#if DEBUG
             s_SyncTime.Begin();
 #endif
 
@@ -195,7 +196,7 @@ namespace Unity.Netcode
                 m_ConnectionManager.SendMessage(ref message, m_NetworkDelivery, m_ConnectionManager.ConnectedClientIds);
             }
 
-#if DEVELOPMENT_BUILD || UNITY_EDITOR
+#if DEBUG
             s_SyncTime.End();
 #endif
         }
