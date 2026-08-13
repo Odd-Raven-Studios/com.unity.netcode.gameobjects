@@ -2024,11 +2024,11 @@ namespace Unity.Netcode
             // If we are just a normal client and in distributed authority mode, then always use the known server scene handle
             if (NetworkManager.DistributedAuthorityMode && NetworkManager.CMBServiceConnection)
             {
-                sceneEventData.AddSceneToSynchronize(SceneHashFromNameOrPath(scene.path), ClientSceneHandleToServerSceneHandle[scene.handle]);
+                sceneEventData.AddSceneToSynchronize(SceneHashFromName(scene.path), ClientSceneHandleToServerSceneHandle[scene.handle]);
             }
             else
             {
-                sceneEventData.AddSceneToSynchronize(SceneHashFromNameOrPath(scene.path), scene.handle);
+                sceneEventData.AddSceneToSynchronize(SceneHashFromName(scene.path), scene.handle);
             }
         }
 
@@ -2088,7 +2088,7 @@ namespace Unity.Netcode
             // The active scene MUST always be the first scene in the synchronization list.
             if (ValidateSceneBeforeLoading(activeScene.buildIndex, activeScene.name, sceneEventData.LoadSceneMode))
             {
-                sceneEventData.SceneHash = SceneHashFromNameOrPath(activeScene.path);
+                sceneEventData.SceneHash = SceneHashFromName(activeScene.path);
                 if (sceneEventData.SceneHash == sceneEventData.ActiveSceneHash)
                 {
                     hasSynchronizedActive = true;
