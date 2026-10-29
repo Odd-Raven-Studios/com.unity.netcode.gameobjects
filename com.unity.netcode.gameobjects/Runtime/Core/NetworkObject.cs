@@ -277,13 +277,17 @@ namespace Unity.Netcode
             // Get a global object identifier for this network prefab.
             if(CustomIdHashFunction == null)
             {
-                CalculateGlobalObjectIdHashFromGlobalObjectId();
+				if (!CalculateGlobalObjectIdHashFromGlobalObjectId())
+					return;
             }
             else
             {
                 GlobalObjectIdHash = CustomIdHashFunction.Invoke(this);
-                if(GlobalObjectIdHash == 0)
-                    CalculateGlobalObjectIdHashFromGlobalObjectId();
+				if (GlobalObjectIdHash == 0)
+				{
+					if (CalculateGlobalObjectIdHashFromGlobalObjectId())
+						return;
+				}
             }
             // Always check for in-scene placed to assure any previous version scene assets with in-scene place NetworkObjects gets updated.
             CheckForInScenePlaced();
@@ -316,17 +320,18 @@ namespace Unity.Netcode
             }
         }
 
-        private void CalculateGlobalObjectIdHashFromGlobalObjectId()
+        private bool CalculateGlobalObjectIdHashFromGlobalObjectId()
         {
             var globalId = GlobalObjectId.GetGlobalObjectIdSlow(this);
 
             // if the identifier type is 0, then don't update the GlobalObjectIdHash.
             if (globalId.identifierType == k_NullObjectType)
             {
-                return;
+                return false;
             }
 
             GlobalObjectIdHash = globalId.ToString().Hash32();
+			return true;
         }
 
         /// <summary>
@@ -2365,7 +2370,7 @@ namespace Unity.Netcode
             {
                 //if (child.gameObject.activeInHierarchy)
                 //{
-                    child.InternalOnOwnershipChanged(previous, next);
+                child.InternalOnOwnershipChanged(previous, next);
                 //}
                 //else
                 //{
@@ -2911,7 +2916,7 @@ namespace Unity.Netcode
             {
                 //if (childBehaviour.gameObject.activeInHierarchy)
                 //{
-                    childBehaviour.NetworkPostSpawn();
+                childBehaviour.NetworkPostSpawn();
                 //}
             }
         }
@@ -2923,7 +2928,7 @@ namespace Unity.Netcode
             {
                 //if (childBehaviour.gameObject.activeInHierarchy)
                 //{
-                    childBehaviour.NetworkSessionSynchronized();
+                childBehaviour.NetworkSessionSynchronized();
                 //}
             }
         }
@@ -2935,7 +2940,7 @@ namespace Unity.Netcode
             {
                 //if (childBehaviour.gameObject.activeInHierarchy)
                 //{
-                    childBehaviour.InSceneNetworkObjectsSpawned();
+                childBehaviour.InSceneNetworkObjectsSpawned();
                 //}
             }
         }
