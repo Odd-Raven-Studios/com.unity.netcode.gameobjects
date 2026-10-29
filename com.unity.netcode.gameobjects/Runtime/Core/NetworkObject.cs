@@ -282,12 +282,16 @@ namespace Unity.Netcode
             }
             else
             {
-                GlobalObjectIdHash = CustomIdHashFunction.Invoke(this);
-				if (GlobalObjectIdHash == 0)
+                var hash = CustomIdHashFunction.Invoke(this);
+				if (hash == 0)
 				{
 					if (CalculateGlobalObjectIdHashFromGlobalObjectId())
 						return;
 				}
+                else
+                {
+                    GlobalObjectIdHash = hash;
+                }
             }
             // Always check for in-scene placed to assure any previous version scene assets with in-scene place NetworkObjects gets updated.
             CheckForInScenePlaced();
