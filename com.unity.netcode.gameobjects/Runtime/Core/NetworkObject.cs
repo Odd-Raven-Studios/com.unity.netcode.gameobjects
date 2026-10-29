@@ -295,6 +295,7 @@ namespace Unity.Netcode
                 if (InScenePlaced)
                 {
                     // Sanity check to make sure this is a scene placed object.
+                    var globalId = GlobalObjectId.GetGlobalObjectIdSlow(this);
                     if (globalId.identifierType != k_SceneObjectType)
                     {
                         // This should never happen, but in the event it does throw and error.
