@@ -26,6 +26,9 @@ namespace Unity.Netcode
     [HelpURL(HelpUrls.NetworkObject)]
     public sealed class NetworkObject : MonoBehaviour
     {
+
+        public static Func<NetworkObject, uint> CustomIdHashFunction;
+
         [HideInInspector]
         [SerializeField]
         internal uint GlobalObjectIdHash;
@@ -270,18 +273,18 @@ namespace Unity.Netcode
                 return;
             }
 
-            // Get a global object identifier for this network prefab.
-            var globalId = GlobalObjectId.GetGlobalObjectIdSlow(this);
-
-            // if the identifier type is 0, then don't update the GlobalObjectIdHash.
-            if (globalId.identifierType == k_NullObjectType)
-            {
-                return;
-            }
-
             var oldValue = GlobalObjectIdHash;
-            GlobalObjectIdHash = globalId.ToString().Hash32();
-
+            // Get a global object identifier for this network prefab.
+            if(CustomIdHashFunction == null)
+            {
+                CalculateGlobalObjectIdHashFromGlobalObjectId();
+            }
+            else
+            {
+                GlobalObjectIdHash = CustomIdHashFunction.Invoke(this);
+                if(GlobalObjectIdHash == 0)
+                    CalculateGlobalObjectIdHashFromGlobalObjectId();
+            }
             // Always check for in-scene placed to assure any previous version scene assets with in-scene place NetworkObjects gets updated.
             CheckForInScenePlaced();
 
@@ -310,6 +313,19 @@ namespace Unity.Netcode
                     EditorUtility.SetDirty(this);
                 }
             }
+        }
+
+        private void CalculateGlobalObjectIdHashFromGlobalObjectId()
+        {
+            var globalId = GlobalObjectId.GetGlobalObjectIdSlow(this);
+
+            // if the identifier type is 0, then don't update the GlobalObjectIdHash.
+            if (globalId.identifierType == k_NullObjectType)
+            {
+                return;
+            }
+
+            GlobalObjectIdHash = globalId.ToString().Hash32();
         }
 
         /// <summary>
